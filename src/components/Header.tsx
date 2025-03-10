@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import WalletConnect from "@/components/WalletConnect";
 
 interface HeaderProps {
   onTabChange: (tab: string) => void;
@@ -59,9 +60,9 @@ const Header = ({ onTabChange, activeTab }: HeaderProps) => {
           </TabsList>
         </Tabs>
         
-        <Button variant="outline" size="sm" className="hidden sm:flex">
-          Connect Wallet
-        </Button>
+        <div className="hidden sm:block">
+          <WalletConnect />
+        </div>
       </div>
     </header>
   );

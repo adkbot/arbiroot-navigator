@@ -13,6 +13,7 @@ import Header from '@/components/Header';
 import PriceCard from '@/components/PriceCard';
 import ArbitrageOpportunityCard from '@/components/ArbitrageOpportunity';
 import ExchangeSelector from '@/components/ExchangeSelector';
+import WalletStatus from '@/components/WalletStatus';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -169,7 +170,9 @@ const Index = () => {
                 </Card>
               </div>
               
-              <div className="md:col-span-1">
+              <div className="md:col-span-1 space-y-6">
+                <WalletStatus />
+                
                 <ExchangeSelector
                   exchanges={exchanges}
                   selectedExchanges={selectedExchanges}

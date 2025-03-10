@@ -31,3 +31,16 @@ export interface ArbitrageParams {
   maxPathLength: number;
   includeExchanges: string[];
 }
+
+export interface WalletInfo {
+  address: string;
+  chain: string;
+  balance: {
+    usdt: number;
+    native: number;
+  };
+  isConnected: boolean;
+  isAuthorized: boolean;
+}
+
+export type ChainType = 'ethereum' | 'polygon' | 'binance' | 'arbitrum';
