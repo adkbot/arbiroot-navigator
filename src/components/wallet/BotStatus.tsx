@@ -13,34 +13,34 @@ const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm">Bot Status</span>
+          <span className="text-sm">Status do Bot</span>
         </div>
         <Badge variant="outline" className="capitalize">
           {botStatus === 'scanning' && (
             <span className="flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Scanning
+              Escaneando
             </span>
           )}
           {botStatus === 'trading' && (
             <span className="flex items-center gap-1 text-green-500">
               <TrendingUp className="h-3 w-3" />
-              Trading
+              Negociando
             </span>
           )}
-          {botStatus === 'waiting' && "Waiting"}
-          {botStatus === 'idle' && "Idle"}
+          {botStatus === 'waiting' && "Aguardando"}
+          {botStatus === 'idle' && "Inativo"}
           {botStatus === 'paused' && (
             <span className="flex items-center gap-1 text-amber-500">
               <PauseCircle className="h-3 w-3" />
-              Paused
+              Pausado
             </span>
           )}
         </Badge>
       </div>
       
       <div className="flex justify-between items-center">
-        <span className="text-sm">Total Arbitrages</span>
+        <span className="text-sm">Total de Arbitragens</span>
         <span className="font-medium">{totalArbitrages}</span>
       </div>
     </div>

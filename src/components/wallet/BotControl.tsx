@@ -33,7 +33,7 @@ const BotControl = ({
         >
           <span className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Activating...
+            Ativando...
           </span>
         </Button>
       ) : botActive ? (
@@ -46,7 +46,7 @@ const BotControl = ({
             >
               <span className="flex items-center gap-2">
                 <Play className="h-4 w-4" />
-                Resume
+                Reiniciar
               </span>
             </Button>
           ) : (
@@ -57,7 +57,7 @@ const BotControl = ({
             >
               <span className="flex items-center gap-2">
                 <Pause className="h-4 w-4" />
-                Pause
+                Pausar
               </span>
             </Button>
           )}
@@ -68,7 +68,7 @@ const BotControl = ({
           >
             <span className="flex items-center gap-2">
               <StopCircle className="h-4 w-4" />
-              Stop
+              Parar
             </span>
           </Button>
         </div>
@@ -80,7 +80,7 @@ const BotControl = ({
         >
           <span className="flex items-center gap-2">
             <Power className="h-4 w-4" />
-            Start Bot
+            Iniciar Bot
           </span>
         </Button>
       )}
@@ -92,7 +92,7 @@ const BotControl = ({
       >
         <span className="flex items-center gap-2">
           <LogOut className="h-4 w-4" />
-          Disconnect Wallet
+          Desconectar Carteira
         </span>
       </Button>
     </div>
