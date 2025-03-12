@@ -10,14 +10,19 @@ import BotStatus from './wallet/BotStatus';
 import BotControl from './wallet/BotControl';
 
 const WalletStatus = () => {
-  const { wallet } = useWallet();
+  const { wallet, disconnectWallet } = useWallet();
   const { 
     botActive,
+    botPaused,
     isActivating,
     lastProfit,
     totalProfit,
     botStatus,
-    toggleBot
+    totalArbitrages,
+    toggleBot,
+    pauseBot,
+    restartBot,
+    stopBot
   } = useBotControl();
   
   if (!wallet || !wallet.isConnected) {
@@ -30,10 +35,10 @@ const WalletStatus = () => {
         <div className="flex justify-between items-center">
           <CardTitle className="text-lg">Arbitrage Bot</CardTitle>
           <Badge 
-            variant={botActive ? "default" : "outline"}
-            className={botActive ? "bg-green-500" : ""}
+            variant={!botActive ? "outline" : botPaused ? "secondary" : "default"}
+            className={!botActive ? "" : botPaused ? "bg-amber-500" : "bg-green-500"}
           >
-            {botActive ? "Active" : "Inactive"}
+            {!botActive ? "Inactive" : botPaused ? "Paused" : "Active"}
           </Badge>
         </div>
       </CardHeader>
@@ -48,12 +53,20 @@ const WalletStatus = () => {
         
         {wallet.isAuthorized && (
           <>
-            <BotStatus botStatus={botStatus} />
+            <BotStatus 
+              botStatus={botStatus} 
+              totalArbitrages={totalArbitrages} 
+            />
             
             <BotControl 
-              toggleBot={toggleBot} 
-              botActive={botActive} 
-              isActivating={isActivating} 
+              toggleBot={toggleBot}
+              pauseBot={pauseBot}
+              restartBot={restartBot}
+              stopBot={stopBot}
+              disconnectWallet={disconnectWallet}
+              botActive={botActive}
+              botPaused={botPaused}
+              isActivating={isActivating}
             />
           </>
         )}

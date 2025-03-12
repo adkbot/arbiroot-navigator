@@ -1,14 +1,15 @@
 
 import { Badge } from "@/components/ui/badge";
-import { Loader2, TrendingUp } from "lucide-react";
+import { Loader2, TrendingUp, PauseCircle } from "lucide-react";
 
 interface BotStatusProps {
-  botStatus: 'idle' | 'scanning' | 'trading' | 'waiting';
+  botStatus: 'idle' | 'scanning' | 'trading' | 'waiting' | 'paused';
+  totalArbitrages: number;
 }
 
-const BotStatus = ({ botStatus }: BotStatusProps) => {
+const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
   return (
-    <div className="pt-2 border-t">
+    <div className="pt-2 border-t space-y-2">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
           <span className="text-sm">Bot Status</span>
@@ -28,7 +29,18 @@ const BotStatus = ({ botStatus }: BotStatusProps) => {
           )}
           {botStatus === 'waiting' && "Waiting"}
           {botStatus === 'idle' && "Idle"}
+          {botStatus === 'paused' && (
+            <span className="flex items-center gap-1 text-amber-500">
+              <PauseCircle className="h-3 w-3" />
+              Paused
+            </span>
+          )}
         </Badge>
+      </div>
+      
+      <div className="flex justify-between items-center">
+        <span className="text-sm">Total Arbitrages</span>
+        <span className="font-medium">{totalArbitrages}</span>
       </div>
     </div>
   );
