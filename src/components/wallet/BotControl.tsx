@@ -1,6 +1,6 @@
 
 import { Button } from "@/components/ui/button";
-import { Loader2, Power, Pause, Play, StopCircle, RefreshCw, LogOut } from "lucide-react";
+import { Loader2, Power, Pause, Play, StopCircle, LogOut } from "lucide-react";
 
 interface BotControlProps {
   toggleBot: () => void;

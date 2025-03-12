@@ -1,6 +1,6 @@
 
 import { Badge } from "@/components/ui/badge";
-import { Loader2, TrendingUp, PauseCircle } from "lucide-react";
+import { Loader2, TrendingUp, PauseCircle, Activity } from "lucide-react";
 
 interface BotStatusProps {
   botStatus: 'idle' | 'scanning' | 'trading' | 'waiting' | 'paused';
@@ -12,6 +12,7 @@ const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
     <div className="pt-2 border-t space-y-2">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm">Bot Status</span>
         </div>
         <Badge variant="outline" className="capitalize">
