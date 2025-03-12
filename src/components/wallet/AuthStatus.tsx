@@ -17,7 +17,7 @@ const AuthStatus = ({ wallet }: AuthStatusProps) => {
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm">Autorização MetaMask</span>
+          <span className="text-sm">Autorização Bot</span>
         </div>
         {wallet.isAuthorized ? (
           <Badge variant="outline" className="border-green-500 text-green-500">
@@ -27,11 +27,11 @@ const AuthStatus = ({ wallet }: AuthStatusProps) => {
           <Button 
             variant="outline" 
             size="sm" 
-            className="h-7 text-xs"
+            className="h-7 text-xs text-green-600 border-green-600 hover:bg-green-50"
             onClick={authorizeSpending}
             disabled={isConnecting}
           >
-            {isConnecting ? "Processando..." : "Autorizar com MetaMask"}
+            {isConnecting ? "Processando..." : "Autorizar Bot"}
           </Button>
         )}
       </div>
