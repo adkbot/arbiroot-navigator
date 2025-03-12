@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from "@/components/ui/use-toast";
+import { useWallet } from '@/contexts/WalletContext';
 
 type BotStatus = 'idle' | 'scanning' | 'trading' | 'waiting' | 'paused';
 
@@ -13,9 +14,10 @@ export function useBotControl() {
   const [botStatus, setBotStatus] = useState<BotStatus>('idle');
   const [botInterval, setBotInterval] = useState<number | null>(null);
   const [totalArbitrages, setTotalArbitrages] = useState(0);
+  const { wallet } = useWallet();
 
+  // Limpar intervalo do bot quando o componente for desmontado
   useEffect(() => {
-    // Clean up bot simulation on unmount
     return () => {
       if (botInterval) {
         clearInterval(botInterval);
@@ -24,7 +26,7 @@ export function useBotControl() {
   }, [botInterval]);
 
   const playSound = (type: 'start' | 'end') => {
-    // Create and play a sound
+    // Criar e tocar um som
     const context = new AudioContext();
     const oscillator = context.createOscillator();
     const gain = context.createGain();
@@ -33,15 +35,15 @@ export function useBotControl() {
     gain.connect(context.destination);
     
     if (type === 'start') {
-      // Higher pitch for start
+      // Tom mais alto para iniciar
       oscillator.frequency.value = 800;
       oscillator.type = 'sine';
     } else {
-      // Two beeps for end
+      // Dois bipes para finalizar
       oscillator.frequency.value = 1000;
       oscillator.type = 'sine';
       
-      // Schedule two beeps
+      // Programar dois bipes
       gain.gain.setValueAtTime(0.5, context.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.2);
       gain.gain.setValueAtTime(0.5, context.currentTime + 0.3);
@@ -52,7 +54,7 @@ export function useBotControl() {
       return;
     }
     
-    // Single beep for start
+    // Um único bipe para iniciar
     gain.gain.setValueAtTime(0.5, context.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.3);
     
@@ -62,11 +64,11 @@ export function useBotControl() {
 
   const toggleBot = () => {
     if (botActive) {
-      // If already active, this is handled by stop/pause
+      // Se já estiver ativo, isso é tratado por stop/pause
       return;
     }
     
-    // Start the bot
+    // Iniciar o bot
     setIsActivating(true);
     
     setTimeout(() => {
@@ -76,21 +78,21 @@ export function useBotControl() {
       setBotStatus('scanning');
       
       toast({
-        title: "Bot Started",
-        description: "Arbitrage bot is now running",
+        title: "Bot Iniciado",
+        description: "Bot de arbitragem está em execução",
       });
       
       playSound('start');
       
-      // Simulate bot activity
+      // Simular atividade do bot
       const interval = window.setInterval(() => {
-        if (botPaused) return; // Skip updates if paused
+        if (botPaused) return; // Pular atualizações se estiver pausado
         
         const actions = ['scanning', 'trading', 'waiting'];
         const randomStatus = actions[Math.floor(Math.random() * actions.length)] as BotStatus;
         setBotStatus(randomStatus);
         
-        // Occasionally generate profits
+        // Ocasionalmente gerar lucros
         if (randomStatus === 'trading' && Math.random() > 0.5) {
           const profit = parseFloat((Math.random() * 5).toFixed(2));
           setLastProfit(profit);
@@ -98,8 +100,8 @@ export function useBotControl() {
           setTotalArbitrages(prev => prev + 1);
           
           toast({
-            title: "Trade Executed",
-            description: `Profit: +$${profit}`,
+            title: "Transação Executada",
+            description: `Lucro: +$${profit}`,
           });
           
           playSound('end');
@@ -117,8 +119,8 @@ export function useBotControl() {
     setBotStatus('paused');
     
     toast({
-      title: "Bot Paused",
-      description: "Arbitrage bot has been paused",
+      title: "Bot Pausado",
+      description: "Bot de arbitragem foi pausado",
     });
   };
   
@@ -129,8 +131,8 @@ export function useBotControl() {
     setBotStatus('scanning');
     
     toast({
-      title: "Bot Resumed",
-      description: "Arbitrage bot has resumed operation",
+      title: "Bot Retomado",
+      description: "Bot de arbitragem retomou a operação",
     });
     
     playSound('start');
@@ -139,7 +141,7 @@ export function useBotControl() {
   const stopBot = () => {
     if (!botActive) return;
     
-    // Stop the bot
+    // Parar o bot
     if (botInterval) {
       clearInterval(botInterval);
       setBotInterval(null);
@@ -150,8 +152,8 @@ export function useBotControl() {
     setBotStatus('idle');
     
     toast({
-      title: "Bot Stopped",
-      description: "Arbitrage bot has been stopped",
+      title: "Bot Parado",
+      description: "Bot de arbitragem foi parado",
     });
   };
 

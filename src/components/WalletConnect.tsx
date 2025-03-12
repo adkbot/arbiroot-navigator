@@ -61,12 +61,12 @@ const WalletConnect = () => {
           {isConnecting ? (
             <>
               <Clock className="h-4 w-4 animate-spin" />
-              Connecting...
+              Conectando...
             </>
           ) : (
             <>
               <Wallet className="h-4 w-4" />
-              Connect Wallet
+              Conectar Carteira
             </>
           )}
         </Button>
@@ -89,14 +89,14 @@ const WalletConnect = () => {
               wallet.chain === 'ethereum' ? 'bg-blue-500' : 
               wallet.chain === 'binance' ? 'bg-yellow-500' : 'bg-red-500'}`}
           />
-          <span className="text-xs font-medium">{wallet.address}</span>
+          <span className="text-xs font-medium truncate max-w-[120px]">{wallet.address}</span>
           <CircleDollarSign className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-4">
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <h4 className="font-medium">Wallet Details</h4>
+            <h4 className="font-medium">Detalhes da Carteira</h4>
             <Badge variant="outline">
               {wallet.chain.charAt(0).toUpperCase() + wallet.chain.slice(1)}
             </Badge>
@@ -104,15 +104,15 @@ const WalletConnect = () => {
           
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">Address</span>
-              <span className="text-sm font-medium">{wallet.address}</span>
+              <span className="text-sm text-muted-foreground">Endereço</span>
+              <span className="text-sm font-medium truncate max-w-[200px]">{wallet.address}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">USDT Balance</span>
+              <span className="text-sm text-muted-foreground">Saldo USDT</span>
               <span className="text-sm font-medium">${wallet.balance.usdt.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">Native Balance</span>
+              <span className="text-sm text-muted-foreground">Saldo Nativo</span>
               <span className="text-sm font-medium">{wallet.balance.native.toFixed(4)} {
                 wallet.chain === 'polygon' ? 'MATIC' : 
                 wallet.chain === 'ethereum' ? 'ETH' : 
@@ -125,13 +125,13 @@ const WalletConnect = () => {
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
-                <span className="text-sm">Authorize Bot Trading</span>
+                <span className="text-sm">Autorizar Bot para Trading</span>
               </div>
               
               {wallet.isAuthorized ? (
                 <div className="flex items-center gap-1 text-green-600">
                   <CheckCircle className="h-4 w-4" />
-                  <span className="text-xs">Authorized</span>
+                  <span className="text-xs">Autorizado</span>
                 </div>
               ) : (
                 <Button 
@@ -141,7 +141,7 @@ const WalletConnect = () => {
                   disabled={isConnecting}
                   className="h-7 text-xs"
                 >
-                  {isConnecting ? "Processing..." : "Authorize"}
+                  {isConnecting ? "Processando..." : "Autorizar"}
                 </Button>
               )}
             </div>
@@ -153,7 +153,7 @@ const WalletConnect = () => {
             onClick={disconnectWallet}
             className="w-full mt-2"
           >
-            Disconnect Wallet
+            Desconectar Carteira
           </Button>
         </div>
       </PopoverContent>

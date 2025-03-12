@@ -33,12 +33,12 @@ const WalletStatus = () => {
     <Card>
       <CardHeader className="pb-2">
         <div className="flex justify-between items-center">
-          <CardTitle className="text-lg">Arbitrage Bot</CardTitle>
+          <CardTitle className="text-lg">Bot de Arbitragem</CardTitle>
           <Badge 
             variant={!botActive ? "outline" : botPaused ? "secondary" : "default"}
             className={!botActive ? "" : botPaused ? "bg-amber-500" : "bg-green-500"}
           >
-            {!botActive ? "Inactive" : botPaused ? "Paused" : "Active"}
+            {!botActive ? "Inativo" : botPaused ? "Pausado" : "Ativo"}
           </Badge>
         </div>
       </CardHeader>
