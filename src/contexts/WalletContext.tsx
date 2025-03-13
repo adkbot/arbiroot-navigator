@@ -18,6 +18,7 @@ interface WindowWithEthereum extends Window {
   ethereum?: {
     request: (args: { method: string; params?: any[] }) => Promise<any>;
     on: (event: string, callback: (...args: any[]) => void) => void;
+    removeListener: (event: string, callback: (...args: any[]) => void) => void;
     selectedAddress: string | null;
     chainId: string;
     isMetaMask?: boolean;
@@ -65,17 +66,30 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (savedWallet) {
       try {
         const parsedWallet = JSON.parse(savedWallet);
-        setWallet(parsedWallet);
         
         // Check if MetaMask is still connected with this address
-        setTimeout(() => {
+        setTimeout(async () => {
           const ethereum = (window as WindowWithEthereum).ethereum;
-          if (ethereum && ethereum.selectedAddress && 
-              ethereum.selectedAddress.toLowerCase() === parsedWallet.address.toLowerCase()) {
-            // Wallet is still connected, update the balance
-            updateWalletBalance();
+          if (ethereum) {
+            try {
+              // Force reconnection with MetaMask instead of auto-connecting
+              const accounts = await ethereum.request({ method: 'eth_accounts' });
+              
+              if (accounts && accounts.length > 0 && 
+                  accounts[0].toLowerCase() === parsedWallet.address.toLowerCase()) {
+                // MetaMask is still connected, update the wallet with fresh data
+                connectWallet(parsedWallet.chain);
+              } else {
+                // MetaMask disconnected or account changed, clear our state
+                setWallet(null);
+                localStorage.removeItem('wallet');
+              }
+            } catch (error) {
+              console.error('Failed to check MetaMask connection', error);
+              setWallet(null);
+              localStorage.removeItem('wallet');
+            }
           } else {
-            // MetaMask disconnected, clear our state
             setWallet(null);
             localStorage.removeItem('wallet');
           }
@@ -111,16 +125,25 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         });
       } else if (wallet && accounts[0].toLowerCase() !== wallet.address.toLowerCase()) {
         // User switched accounts, update our state
-        connectWallet(wallet.chain);
+        if (wallet.chain) {
+          connectWallet(wallet.chain);
+        }
       }
     };
 
+    const handleChainChanged = (chainId: string) => {
+      // User changed network, reload the page to reset the state
+      window.location.reload();
+    };
+
     ethereum.on('accountsChanged', handleAccountsChanged);
+    ethereum.on('chainChanged', handleChainChanged);
     
     return () => {
-      // Remove listener on cleanup
-      if (ethereum.on) {
-        ethereum.on('accountsChanged', handleAccountsChanged);
+      // Remove listeners on cleanup
+      if (ethereum.removeListener) {
+        ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        ethereum.removeListener('chainChanged', handleChainChanged);
       }
     };
   }, [wallet]);
@@ -134,8 +157,9 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const ethereum = (window as WindowWithEthereum).ethereum;
       if (!ethereum) throw new Error("MetaMask não encontrado");
 
-      const gasPriceWei = await ethereum.request({ method: 'eth_gasPrice' });
-      return parseInt(gasPriceWei, 16) / 1e9;
+      const provider = new ethers.providers.Web3Provider(ethereum as any);
+      const gasPriceWei = await provider.getGasPrice();
+      return parseFloat(ethers.utils.formatUnits(gasPriceWei, 'gwei'));
     } catch (error) {
       console.error("Erro ao obter taxa de gás:", error);
       return 0;
@@ -164,7 +188,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return parseFloat(ethers.utils.formatUnits(balance, decimals));
     } catch (error) {
       console.error("Error fetching token balance:", error);
-      return 0;
+      throw error; // Re-throw to handle in the calling function
     }
   };
 
@@ -203,6 +227,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         title: "Erro ao atualizar saldo",
         description: "Não foi possível obter o saldo atual da carteira.",
       });
+      throw error;
     }
   };
 
@@ -217,12 +242,12 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           description: "Por favor, instale a extensão MetaMask primeiro.",
         });
         setIsConnecting(false);
-        return Promise.reject("MetaMask não encontrado");
+        throw new Error("MetaMask não encontrado");
       }
 
       const ethereum = (window as WindowWithEthereum).ethereum;
       
-      // Request accounts access
+      // Always request accounts to ensure MetaMask popup appears
       try {
         const accounts = await ethereum?.request({ method: 'eth_requestAccounts' });
         
@@ -246,8 +271,61 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           } catch (switchError: any) {
             // This error code indicates that the chain has not been added to MetaMask.
             if (switchError.code === 4902) {
-              // TODO: Add support for adding the chain to MetaMask
-              throw new Error(`Rede ${chain} não está configurada no MetaMask.`);
+              // Add the network to MetaMask
+              let networkParams;
+              
+              switch(chain) {
+                case 'polygon':
+                  networkParams = {
+                    chainId: targetChainId,
+                    chainName: 'Polygon Mainnet',
+                    nativeCurrency: {
+                      name: 'MATIC',
+                      symbol: 'MATIC',
+                      decimals: 18
+                    },
+                    rpcUrls: ['https://polygon-rpc.com'],
+                    blockExplorerUrls: ['https://polygonscan.com']
+                  };
+                  break;
+                case 'binance':
+                  networkParams = {
+                    chainId: targetChainId,
+                    chainName: 'Binance Smart Chain',
+                    nativeCurrency: {
+                      name: 'BNB',
+                      symbol: 'BNB',
+                      decimals: 18
+                    },
+                    rpcUrls: ['https://bsc-dataseed.binance.org'],
+                    blockExplorerUrls: ['https://bscscan.com']
+                  };
+                  break;
+                case 'arbitrum':
+                  networkParams = {
+                    chainId: targetChainId,
+                    chainName: 'Arbitrum One',
+                    nativeCurrency: {
+                      name: 'ETH',
+                      symbol: 'ETH',
+                      decimals: 18
+                    },
+                    rpcUrls: ['https://arb1.arbitrum.io/rpc'],
+                    blockExplorerUrls: ['https://arbiscan.io']
+                  };
+                  break;
+                default:
+                  throw new Error(`Rede ${chain} não suportada para adição automática.`);
+              }
+              
+              try {
+                await ethereum?.request({
+                  method: 'wallet_addEthereumChain',
+                  params: [networkParams]
+                });
+              } catch (addError) {
+                throw new Error(`Erro ao adicionar a rede ${chain}: ${addError.message}`);
+              }
             } else {
               throw switchError;
             }
@@ -262,7 +340,13 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         const nativeBalance = parseFloat(ethers.utils.formatEther(balanceWei));
         
         // Get USDT balance
-        const usdtBalance = await getTokenBalance(address, chain);
+        let usdtBalance = 0;
+        try {
+          usdtBalance = await getTokenBalance(address, chain);
+        } catch (error) {
+          console.error("Error fetching USDT balance:", error);
+          // Continue with zero USDT balance but don't fail the whole connection
+        }
         
         const newWallet: WalletInfo = {
           address,
@@ -327,7 +411,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if (!hasMetaMask()) throw new Error("MetaMask não encontrado");
 
       const ethereum = (window as WindowWithEthereum).ethereum;
-      const message = `Autorizo este contrato a gastar USDT na rede ${wallet.chain}`;
+      const message = `Autorizo este contrato a gastar USDT na rede ${wallet.chain} - ${Date.now()}`;
       
       const signature = await ethereum?.request({
         method: 'personal_sign',

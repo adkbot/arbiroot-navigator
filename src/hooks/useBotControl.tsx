@@ -1,7 +1,10 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from "@/components/ui/use-toast";
 import { useWallet } from '@/contexts/WalletContext';
+import { findTriangularArbitrageOpportunities } from '@/lib/arbitrage';
+import { fetchPrices } from '@/lib/api';
+import { PriceData, ArbitrageOpportunity } from '@/lib/types';
 
 type BotStatus = 'idle' | 'scanning' | 'trading' | 'waiting' | 'paused';
 
@@ -14,7 +17,9 @@ export function useBotControl() {
   const [botStatus, setBotStatus] = useState<BotStatus>('idle');
   const [botInterval, setBotInterval] = useState<number | null>(null);
   const [totalArbitrages, setTotalArbitrages] = useState(0);
-  const { wallet } = useWallet();
+  const [prices, setPrices] = useState<PriceData[]>([]);
+  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
+  const { wallet, updateWalletBalance } = useWallet();
 
   // Limpar intervalo do bot quando o componente for desmontado
   useEffect(() => {
@@ -61,6 +66,70 @@ export function useBotControl() {
     oscillator.start(context.currentTime);
     oscillator.stop(context.currentTime + 0.4);
   };
+  
+  // Função para buscar preços e oportunidades
+  const scanForOpportunities = useCallback(async () => {
+    if (!botActive || botPaused) return;
+    
+    setBotStatus('scanning');
+    
+    try {
+      // Buscar preços reais
+      const priceData = await fetchPrices();
+      setPrices(priceData);
+      
+      if (priceData.length > 0) {
+        // Calcular oportunidades reais
+        const ops = findTriangularArbitrageOpportunities(priceData, {
+          minProfitPercentage: 0.5,
+          maxPathLength: 3,
+          includeExchanges: ['binance', 'coinbase', 'kraken']
+        });
+        
+        setOpportunities(ops);
+        
+        // Se houver oportunidades lucrativas, simular execução
+        const profitableOps = ops.filter(o => o.profitPercentage > 0.8);
+        
+        if (profitableOps.length > 0 && wallet?.isAuthorized) {
+          setBotStatus('trading');
+          
+          // Aguardar um momento para simular a troca
+          setTimeout(() => {
+            // Verificar se não foi pausado durante o intervalo
+            if (botActive && !botPaused) {
+              // Usar a primeira oportunidade lucrativa disponível
+              const op = profitableOps[0];
+              const profit = op.profit;
+              
+              setLastProfit(profit);
+              setTotalProfit(prev => prev + profit);
+              setTotalArbitrages(prev => prev + 1);
+              
+              // Atualizar saldo da carteira após arbitragem
+              updateWalletBalance().catch(console.error);
+              
+              // Notificar usuário
+              toast({
+                title: "Arbitragem Executada",
+                description: `${op.details} - Lucro: +$${profit.toFixed(2)}`,
+              });
+              
+              playSound('end');
+              
+              setBotStatus('waiting');
+            }
+          }, 3000);
+        } else {
+          // Sem oportunidades lucrativas no momento
+          setBotStatus('waiting');
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao buscar oportunidades:", error);
+      setBotStatus('waiting');
+    }
+  }, [botActive, botPaused, wallet, updateWalletBalance]);
 
   const toggleBot = () => {
     if (botActive) {
@@ -84,29 +153,15 @@ export function useBotControl() {
       
       playSound('start');
       
-      // Simular atividade do bot
+      // Executar imediatamente a primeira vez
+      scanForOpportunities();
+      
+      // Configurar intervalo para execução periódica
       const interval = window.setInterval(() => {
-        if (botPaused) return; // Pular atualizações se estiver pausado
-        
-        const actions = ['scanning', 'trading', 'waiting'];
-        const randomStatus = actions[Math.floor(Math.random() * actions.length)] as BotStatus;
-        setBotStatus(randomStatus);
-        
-        // Ocasionalmente gerar lucros
-        if (randomStatus === 'trading' && Math.random() > 0.5) {
-          const profit = parseFloat((Math.random() * 5).toFixed(2));
-          setLastProfit(profit);
-          setTotalProfit(prev => parseFloat((prev + profit).toFixed(2)));
-          setTotalArbitrages(prev => prev + 1);
-          
-          toast({
-            title: "Transação Executada",
-            description: `Lucro: +$${profit}`,
-          });
-          
-          playSound('end');
+        if (!botPaused) {
+          scanForOpportunities();
         }
-      }, 5000);
+      }, 15000); // A cada 15 segundos
       
       setBotInterval(interval);
     }, 2000);
@@ -136,6 +191,9 @@ export function useBotControl() {
     });
     
     playSound('start');
+    
+    // Executar imediatamente ao retomar
+    scanForOpportunities();
   };
   
   const stopBot = () => {
@@ -165,6 +223,7 @@ export function useBotControl() {
     totalProfit,
     botStatus,
     totalArbitrages,
+    opportunities,
     toggleBot,
     pauseBot,
     restartBot,

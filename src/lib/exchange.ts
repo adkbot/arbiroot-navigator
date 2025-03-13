@@ -1,7 +1,16 @@
 
 // Basic exchange utilities to fix import errors
 import { ethers } from 'ethers';
-import { PriceData, LiquidityInfo, TradeResult } from './types';
+import { PriceData, LiquidityInfo } from './types';
+
+export interface TradeResult {
+  side: string;
+  exchange: string;
+  symbol: string;
+  amount: number;
+  price: number;
+  fee: number;
+}
 
 export class ExchangeManager {
   constructor() {
@@ -49,7 +58,12 @@ export class ExchangeManager {
   }
   
   async getExchange(id: string) {
-    return { id, name: id };
+    return { 
+      id, 
+      name: id,
+      cancelAllOrders: async () => {},
+      createOrder: async () => {}
+    };
   }
   
   async fetchOrderBook(exchange: string, symbol: string) {
@@ -107,7 +121,6 @@ export class WalletManager {
     };
   }
   
-  // Private method but needed for backward compatibility
   async getTokenBalances(address: string, network: string) {
     return { 
       matic: 0.875, 
@@ -118,16 +131,6 @@ export class WalletManager {
   async connect() {
     return true;
   }
-}
-
-// Mock TradeResult type needed for arbitrage.ts
-export interface TradeResult {
-  side: string;
-  exchange: string;
-  symbol: string;
-  amount: number;
-  price: number;
-  fee: number;
 }
 
 export class ArbitrageExecutor {
