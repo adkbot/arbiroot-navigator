@@ -1,7 +1,6 @@
 
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { ChainType } from "@/lib/types";
 import { 
   Popover,
   PopoverContent,
@@ -16,6 +15,7 @@ import {
   Clock
 } from "lucide-react";
 import { useWallet } from '@/contexts/WalletContext';
+import { ChainType } from "@/lib/types";
 
 const WalletConnect = () => {
   const { wallet, isConnecting, connectWallet, disconnectWallet, authorizeSpending } = useWallet();

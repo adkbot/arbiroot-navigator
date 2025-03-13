@@ -19,7 +19,11 @@ const WalletNotConnected = () => {
           <p className="text-muted-foreground text-center">
             Connect your wallet to enable arbitrage trading
           </p>
-          <Button variant="outline" size="sm" onClick={() => connectWallet('polygon' as ChainType)}>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => connectWallet('polygon')}
+          >
             Connect Wallet
           </Button>
         </div>

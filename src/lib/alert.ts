@@ -1,6 +1,6 @@
-// Import axios that was just installed
+
+// Import axios
 import axios from 'axios';
-import { alertConfig } from '../config';
 
 type AlertType = 'info' | 'warning' | 'error' | 'success';
 
@@ -9,6 +9,28 @@ interface AlertMessage {
   message: string;
   details?: any;
 }
+
+interface AlertConfig {
+  telegram?: {
+    enabled: boolean;
+    botToken?: string;
+    chatId?: string;
+  };
+  discord?: {
+    enabled: boolean;
+    webhookUrl?: string;
+  };
+}
+
+// Default config
+const alertConfig: AlertConfig = {
+  telegram: {
+    enabled: false
+  },
+  discord: {
+    enabled: false
+  }
+};
 
 // Telegram alert
 async function sendTelegramAlert(message: string) {
@@ -66,4 +88,13 @@ export async function sendAlert(alert: AlertMessage) {
   }
 
   console.log(`Alert sent: ${message}`);
+}
+
+// Exporting an empty class for compatibility with monitoring.ts
+export class AlertManager {
+  constructor() {}
+  
+  async sendAlert(type: AlertType, message: string, details?: any) {
+    return sendAlert({ type, message, details });
+  }
 }

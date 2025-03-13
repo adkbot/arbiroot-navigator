@@ -1,305 +1,112 @@
-import { ExchangeManager } from './exchange';
-import { Logger } from './logger';
-import {
-  ArbitrageOpportunity,
-  ArbitrageSession,
-  TradeResult,
-  PriceData,
-  RiskMetrics,
-  LiquidityInfo
-} from './types';
 
-export class ArbitrageExecutor {
-  private exchangeManager: ExchangeManager;
-  private logger: Logger;
-  private sessions: Map<string, ArbitrageSession>;
-  private readonly MIN_PROFIT_AFTER_FEES = 0.002; // 0.2%
-  private readonly MAX_SLIPPAGE = 0.005; // 0.5%
-  private readonly MIN_LIQUIDITY_RATIO = 3; // Volume disponível deve ser 3x maior que o necessário
+import { ExchangeManager, ArbitrageExecutor } from './exchange';
+import { PriceData, ArbitrageOpportunity } from './types';
 
-  constructor(exchangeManager: ExchangeManager) {
-    this.exchangeManager = exchangeManager;
-    this.logger = new Logger('ArbitrageExecutor');
-    this.sessions = new Map();
+// Stub implementation until the real implementation is needed
+export function findTriangularArbitrageOpportunities(
+  prices: PriceData[], 
+  options: { 
+    minProfitPercentage: number, 
+    maxPathLength: number,
+    includeExchanges: string[]
   }
-
-  private createSession(opportunity: ArbitrageOpportunity): ArbitrageSession {
-    const session: ArbitrageSession = {
-      id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      startTime: Date.now(),
-      trades: [],
-      status: 'pending',
-      profitTarget: opportunity.profit,
-      currentProfit: 0,
-      errors: []
-    };
-    this.sessions.set(session.id, session);
-    return session;
-  }
-
-  async executeTriangularArbitrage(opportunity: ArbitrageOpportunity): Promise<void> {
-    const session = this.createSession(opportunity);
+): ArbitrageOpportunity[] {
+  // Simple mock implementation that generates some fake opportunities
+  const opportunities: ArbitrageOpportunity[] = [];
+  
+  // Generate a few mock opportunities based on actual prices
+  const exchangeIds = [...new Set(prices.map(p => p.exchange))];
+  const symbols = [...new Set(prices.map(p => p.symbol))];
+  
+  // Filter exchanges by the ones requested
+  const filteredExchanges = exchangeIds.filter(ex => 
+    options.includeExchanges.includes(ex)
+  );
+  
+  // Create a few mock triangular opportunities
+  for (let i = 0; i < Math.min(5, filteredExchanges.length); i++) {
+    const exchange = filteredExchanges[i];
+    const profitPercentage = options.minProfitPercentage + (Math.random() * 2);
     
-    try {
-      this.logger.info(`Iniciando arbitragem triangular: ${opportunity.details}`);
-      session.status = 'executing';
-
-      // 1. Verificar saldos e condições de risco
-      await this.validateBalances(opportunity);
+    // Only create opportunities that meet the minimum profit requirement
+    if (profitPercentage >= options.minProfitPercentage) {
+      // Generate a random triangular path
+      const availableSymbols = symbols.filter(s => 
+        prices.some(p => p.exchange === exchange && p.symbol === s)
+      );
       
-      // 2. Verificar liquidez em todos os pares
-      await this.validateLiquidity(opportunity);
-      
-      // 3. Calcular métricas de risco
-      const riskMetrics = await this.calculateRiskMetrics(opportunity);
-      if (riskMetrics.executionRisk === 'high') {
-        throw new Error('Risco de execução muito alto');
-      }
-
-      // 4. Executar trades em sequência
-      for (const [index, trade] of opportunity.path.entries()) {
-        const result = await this.executeTrade(trade, opportunity.exchanges[index], session);
-        session.trades.push(result);
+      if (availableSymbols.length >= 3) {
+        const path = [];
+        for (let j = 0; j < Math.min(options.maxPathLength, 3); j++) {
+          const randomIndex = Math.floor(Math.random() * availableSymbols.length);
+          path.push(availableSymbols[randomIndex]);
+        }
         
-        // Verificar se ainda é lucrativo continuar
-        if (!this.isStillProfitable(session, opportunity)) {
-          throw new Error('Oportunidade não é mais lucrativa');
+        opportunities.push({
+          id: `tri-${exchange}-${Date.now()}-${i}`,
+          type: 'triangular',
+          profit: (10000 * profitPercentage) / 100, // Random profit amount
+          profitPercentage,
+          path,
+          details: `${exchange}: ${path.join(' → ')}`,
+          timestamp: Date.now() - Math.floor(Math.random() * 3600000), // Random time in the last hour
+          exchanges: [exchange],
+          minimumRequired: 1000 // Minimum required for trade
+        });
+      }
+    }
+  }
+  
+  // Create a few mock simple (cross-exchange) opportunities
+  if (filteredExchanges.length >= 2) {
+    for (let i = 0; i < Math.min(3, Math.floor(filteredExchanges.length / 2)); i++) {
+      const exchange1 = filteredExchanges[i * 2];
+      const exchange2 = filteredExchanges[i * 2 + 1] || filteredExchanges[0];
+      
+      const profitPercentage = options.minProfitPercentage + (Math.random() * 1.5);
+      
+      // Only create opportunities that meet the minimum profit requirement
+      if (profitPercentage >= options.minProfitPercentage) {
+        // Find a symbol that exists on both exchanges
+        const commonSymbols = symbols.filter(s => 
+          prices.some(p => p.exchange === exchange1 && p.symbol === s) &&
+          prices.some(p => p.exchange === exchange2 && p.symbol === s)
+        );
+        
+        if (commonSymbols.length > 0) {
+          const symbol = commonSymbols[Math.floor(Math.random() * commonSymbols.length)];
+          
+          opportunities.push({
+            id: `simple-${exchange1}-${exchange2}-${Date.now()}-${i}`,
+            type: 'simple',
+            profit: (5000 * profitPercentage) / 100, // Random profit amount
+            profitPercentage,
+            path: [symbol],
+            details: `${exchange1} → ${exchange2}: ${symbol}`,
+            timestamp: Date.now() - Math.floor(Math.random() * 7200000), // Random time in the last 2 hours
+            exchanges: [exchange1, exchange2],
+            minimumRequired: 500 // Minimum required for trade
+          });
         }
       }
-
-      // 5. Verificar resultado final
-      await this.verifyArbitrageResult(session);
-      
-      session.status = 'completed';
-      this.logger.info(`Arbitragem concluída com sucesso: ${session.id}`);
-      
-    } catch (error) {
-      session.status = 'failed';
-      session.errors.push(error.message);
-      this.logger.error(`Erro na arbitragem ${session.id}:`, error);
-      
-      // Iniciar processo de rollback se necessário
-      if (session.trades.length > 0) {
-        await this.rollbackTrades(session);
-      }
-      
-      throw error;
     }
   }
-
-  private async validateBalances(opportunity: ArbitrageOpportunity): Promise<void> {
-    for (const exchangeId of opportunity.exchanges) {
-      const balance = await this.exchangeManager.fetchBalance(exchangeId, true);
-      
-      // Verificar se há saldo suficiente para a operação
-      if (!this.hasEnoughBalance(balance, opportunity)) {
-        throw new Error(`Saldo insuficiente na exchange ${exchangeId}`);
-      }
-    }
-  }
-
-  private async validateLiquidity(opportunity: ArbitrageOpportunity): Promise<void> {
-    const liquidityChecks: LiquidityInfo[] = [];
-    
-    for (const [index, symbol] of opportunity.path.entries()) {
-      const exchangeId = opportunity.exchanges[index];
-      const requiredAmount = opportunity.minimumRequired || 0;
-      
-      const liquidity = await this.exchangeManager.checkLiquidity(
-        exchangeId,
-        symbol,
-        requiredAmount * this.MIN_LIQUIDITY_RATIO
-      );
-      
-      if (!liquidity.isLiquid) {
-        throw new Error(`Liquidez insuficiente para ${symbol} em ${exchangeId}`);
-      }
-      
-      liquidityChecks.push(liquidity);
-    }
-  }
-
-  private async calculateRiskMetrics(opportunity: ArbitrageOpportunity): Promise<RiskMetrics> {
-    const metrics: RiskMetrics = {
-      volatility: 0,
-      slippageEstimate: 0,
-      liquidityScore: 0,
-      executionRisk: 'low',
-      maxLoss: 0
-    };
-
-    // Calcular volatilidade média dos pares
-    for (const [index, symbol] of opportunity.path.entries()) {
-      const exchangeId = opportunity.exchanges[index];
-      const ticker = await this.exchangeManager.fetchTicker(exchangeId, symbol);
-      
-      // Cálculo simplificado de volatilidade usando spread
-      const spread = (ticker.ask - ticker.bid) / ticker.bid;
-      metrics.volatility += spread;
-      
-      // Estimar slippage baseado no volume
-      const slippage = this.estimateSlippage(ticker);
-      metrics.slippageEstimate += slippage;
-    }
-
-    metrics.volatility /= opportunity.path.length;
-    metrics.slippageEstimate /= opportunity.path.length;
-    
-    // Determinar nível de risco
-    if (metrics.volatility > 0.01 || metrics.slippageEstimate > this.MAX_SLIPPAGE) {
-      metrics.executionRisk = 'high';
-    } else if (metrics.volatility > 0.005 || metrics.slippageEstimate > this.MAX_SLIPPAGE / 2) {
-      metrics.executionRisk = 'medium';
-    }
-
-    // Calcular potencial máximo de perda
-    metrics.maxLoss = opportunity.minimumRequired * (metrics.slippageEstimate + metrics.volatility);
-
-    return metrics;
-  }
-
-  private async executeTrade(
-    symbol: string,
-    exchangeId: string,
-    session: ArbitrageSession
-  ): Promise<TradeResult> {
-    try {
-      const orderType = 'limit'; // Usar ordem limit para melhor preço
-      const side = this.determineTradeSide(symbol, session);
-      const amount = this.calculateTradeAmount(symbol, session);
-      const price = await this.calculateOptimalPrice(symbol, exchangeId, side);
-
-      const result = await this.exchangeManager.createOrder(
-        exchangeId,
-        symbol,
-        orderType,
-        side,
-        amount,
-        price
-      );
-
-      // Aguardar confirmação da ordem
-      await this.waitForOrderCompletion(result.id, symbol, exchangeId);
-
-      return result;
-    } catch (error) {
-      this.logger.error(`Erro ao executar trade ${symbol} em ${exchangeId}:`, error);
-      throw error;
-    }
-  }
-
-  private async rollbackTrades(session: ArbitrageSession): Promise<void> {
-    this.logger.warn(`Iniciando rollback para sessão ${session.id}`);
-    
-    for (const trade of session.trades.reverse()) {
-      try {
-        // Executar ordem inversa para compensar
-        const side = trade.side === 'buy' ? 'sell' : 'buy';
-        await this.exchangeManager.createOrder(
-          trade.exchange,
-          trade.symbol,
-          'market', // Usar market order para garantir execução rápida
-          side,
-          trade.filled
-        );
-      } catch (error) {
-        this.logger.error(`Erro no rollback do trade ${trade.id}:`, error);
-      }
-    }
-  }
-
-  private isStillProfitable(session: ArbitrageSession, opportunity: ArbitrageOpportunity): boolean {
-    const currentProfit = this.calculateCurrentProfit(session);
-    return currentProfit >= opportunity.profit * (1 - this.MAX_SLIPPAGE);
-  }
-
-  private calculateCurrentProfit(session: ArbitrageSession): number {
-    // Implementar cálculo real de lucro baseado nos trades executados
-    return session.trades.reduce((profit, trade) => {
-      return profit + (trade.side === 'buy' ? -trade.cost : trade.cost);
-    }, 0);
-  }
-
-  private async waitForOrderCompletion(
-    orderId: string,
-    symbol: string,
-    exchangeId: string,
-    timeout = 30000
-  ): Promise<void> {
-    const startTime = Date.now();
-    
-    while (Date.now() - startTime < timeout) {
-      const order = await this.exchangeManager.getExchange(exchangeId).fetchOrder(orderId, symbol);
-      
-      if (order.status === 'closed') {
-        return;
-      }
-      
-      if (order.status === 'canceled' || order.status === 'expired') {
-        throw new Error(`Ordem ${orderId} não foi completada: ${order.status}`);
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    
-    throw new Error(`Timeout aguardando conclusão da ordem ${orderId}`);
-  }
-
-  private estimateSlippage(ticker: PriceData): number {
-    if (!ticker.volume) return this.MAX_SLIPPAGE;
-    
-    // Quanto maior o volume, menor o slippage esperado
-    const volumeScore = Math.min(1, ticker.volume / 100000);
-    return this.MAX_SLIPPAGE * (1 - volumeScore);
-  }
-
-  private hasEnoughBalance(balance: any, opportunity: ArbitrageOpportunity): boolean {
-    // Implementar verificação real de saldo considerando as moedas necessárias
-    return true; // Placeholder
-  }
-
-  private determineTradeSide(symbol: string, session: ArbitrageSession): 'buy' | 'sell' {
-    // Implementar lógica real para determinar lado do trade
-    return 'buy'; // Placeholder
-  }
-
-  private calculateTradeAmount(symbol: string, session: ArbitrageSession): number {
-    // Implementar cálculo real do montante do trade
-    return 0; // Placeholder
-  }
-
-  private async calculateOptimalPrice(
-    symbol: string,
-    exchangeId: string,
-    side: 'buy' | 'sell'
-  ): Promise<number> {
-    const orderbook = await this.exchangeManager.fetchOrderBook(exchangeId, symbol);
-    const orders = side === 'buy' ? orderbook.asks : orderbook.bids;
-    
-    // Implementar cálculo real do preço ótimo baseado no order book
-    return orders[0][0]; // Placeholder - usar primeiro preço disponível
-  }
+  
+  // Sort by profit percentage descending
+  return opportunities.sort((a, b) => b.profitPercentage - a.profitPercentage);
 }
 
-export function findTriangularArbitrageOpportunities() {
-  return [
-    {
-      type: 'triangular',
-      profit: 25.45,
-      profitPercentage: 0.85,
-      path: ['BTC/USDT', 'ETH/BTC', 'ETH/USDT'],
-      details: 'Buy BTC with USDT, buy ETH with BTC, sell ETH for USDT',
-      timestamp: Date.now(),
-      exchanges: ['binance']
-    },
-    {
-      type: 'triangular',
-      profit: 42.18,
-      profitPercentage: 1.21,
-      path: ['ETH/USDT', 'XRP/ETH', 'XRP/USDT'],
-      details: 'Buy ETH with USDT, buy XRP with ETH, sell XRP for USDT',
-      timestamp: Date.now() - 120000,
-      exchanges: ['kucoin']
-    }
-  ];
+// Dummy implementations for compatibility with existing code
+export class ArbitrageManager {
+  private exchangeManager: ExchangeManager;
+  private arbitrageExecutor: ArbitrageExecutor;
+  
+  constructor() {
+    this.exchangeManager = new ExchangeManager();
+    this.arbitrageExecutor = new ArbitrageExecutor();
+  }
+  
+  async verifyArbitrageResult(result: any) {
+    return this.arbitrageExecutor.verifyArbitrageResult(result);
+  }
 }

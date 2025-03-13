@@ -21,12 +21,11 @@ export default defineConfig(({ mode }) => ({
     },
   },
   optimizeDeps: {
-    include: ['ccxt', 'ethers'],
-    exclude: ['http-proxy-agent', 'https-proxy-agent'],
+    exclude: ['ccxt', 'http-proxy-agent', 'https-proxy-agent'],
   },
   build: {
     commonjsOptions: {
-      include: [/ccxt/, /ethers/, /node_modules/],
+      include: [/node_modules/],
     },
   },
 }));

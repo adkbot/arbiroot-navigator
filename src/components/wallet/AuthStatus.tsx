@@ -1,9 +1,8 @@
 
-import { Badge } from "@/components/ui/badge";
-import { ShieldCheck } from "lucide-react";
-import { WalletInfo } from "@/lib/types";
+import { Shield, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/contexts/WalletContext";
+import { WalletInfo } from "@/lib/types";
 
 interface AuthStatusProps {
   wallet: WalletInfo;
@@ -13,28 +12,30 @@ const AuthStatus = ({ wallet }: AuthStatusProps) => {
   const { authorizeSpending, isConnecting } = useWallet();
   
   return (
-    <div className="pt-2 border-t">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm">Autorização Bot</span>
+    <div className="flex justify-between items-center p-2 rounded-md bg-muted/40">
+      <div className="flex items-center gap-2">
+        <Shield className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm">Status</span>
+      </div>
+      
+      {wallet.isAuthorized ? (
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+          <span className="text-sm font-medium">Autorizado</span>
         </div>
-        {wallet.isAuthorized ? (
-          <Badge variant="outline" className="border-green-500 text-green-500">
-            Aprovado
-          </Badge>
-        ) : (
+      ) : (
+        <div className="flex items-center gap-2">
+          <LockKeyhole className="h-4 w-4 text-amber-500" />
           <Button 
-            variant="outline" 
             size="sm" 
-            className="h-7 text-xs text-green-600 border-green-600 hover:bg-green-50"
+            className="h-7 text-xs"
             onClick={authorizeSpending}
             disabled={isConnecting}
           >
-            {isConnecting ? "Processando..." : "Autorizar Bot"}
+            {isConnecting ? "Processando..." : "Autorizar"}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
