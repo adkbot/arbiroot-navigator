@@ -1,7 +1,8 @@
-
+import ccxt from 'ccxt';
+import { ethers } from 'ethers';
 import { PriceData, ExchangeInfo } from './types';
 
-// Mock exchanges data
+// Dados reais das exchanges
 export const exchanges: ExchangeInfo[] = [
   { id: 'binance', name: 'Binance', logo: 'https://cryptologos.cc/logos/binance-coin-bnb-logo.png', active: true },
   { id: 'coinbase', name: 'Coinbase', logo: 'https://cryptologos.cc/logos/coinbase-coin-logo.png', active: true },
@@ -15,7 +16,7 @@ export const exchanges: ExchangeInfo[] = [
   { id: 'gate', name: 'Gate.io', logo: 'https://cryptologos.cc/logos/gate-logo.png', active: true },
 ];
 
-// Popular trading pairs
+// Pares de negociação populares (dados reais)
 export const tradingPairs = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'SOL/USDT',
   'XRP/USDT', 'DOT/USDT', 'DOGE/USDT', 'AVAX/USDT', 'MATIC/USDT',
@@ -23,67 +24,104 @@ export const tradingPairs = [
   'ETH/BTC', 'BNB/BTC', 'SOL/BTC', 'ADA/BTC', 'XRP/BTC',
 ];
 
-// Mock price data generator
-export function generateMockPrices(): PriceData[] {
+// Função auxiliar para adaptar o formato do par conforme cada exchange
+function convertSymbolForExchange(exchangeId: string, pair: string): string {
+  switch (exchangeId) {
+    case 'kraken':
+      return pair.replace('BTC', 'XBT').replace('/', '');
+    case 'coinbase':
+      return pair.replace('/', '-');
+    default:
+      return pair.replace('/', '');
+  }
+}
+
+// Busca preços reais utilizando ccxt para cada exchange ativa e cada par
+export async function fetchPrices(): Promise<PriceData[]> {
   const prices: PriceData[] = [];
   const now = Date.now();
-  
-  tradingPairs.forEach(pair => {
-    exchanges.forEach(exchange => {
-      if (exchange.active) {
-        // Generate base price with some randomness
-        const basePrice = getBasePriceForPair(pair);
-        // Add slight variation per exchange (up to 1.5%)
-        const variation = (Math.random() * 3 - 1.5) / 100;
-        const price = basePrice * (1 + variation);
-        
+  const exchangeInstances: Record<string, any> = {};
+
+  for (const exch of exchanges) {
+    if (!exch.active) continue;
+    try {
+      switch (exch.id) {
+        case 'binance': exchangeInstances[exch.id] = new ccxt.binance(); break;
+        case 'coinbase': exchangeInstances[exch.id] = new ccxt.coinbasepro(); break;
+        case 'kraken': exchangeInstances[exch.id] = new ccxt.kraken(); break;
+        case 'kucoin': exchangeInstances[exch.id] = new ccxt.kucoin(); break;
+        case 'ftx': exchangeInstances[exch.id] = new ccxt.ftx(); break;
+        case 'huobi': exchangeInstances[exch.id] = new ccxt.huobi(); break;
+        case 'bitfinex': exchangeInstances[exch.id] = new ccxt.bitfinex(); break;
+        case 'bybit': exchangeInstances[exch.id] = new ccxt.bybit(); break;
+        case 'okx': exchangeInstances[exch.id] = new ccxt.okx(); break;
+        case 'gate': exchangeInstances[exch.id] = new ccxt.gateio(); break;
+        default: console.error(`Exchange ${exch.id} não suportada.`);
+      }
+    } catch (error) {
+      console.error(`Erro ao inicializar ${exch.id}:`, error);
+    }
+  }
+
+  const promises = Object.keys(exchangeInstances).map(async (exchId) => {
+    const instance = exchangeInstances[exchId];
+    for (const pair of tradingPairs) {
+      const symbol = convertSymbolForExchange(exchId, pair);
+      try {
+        const ticker = await instance.fetchTicker(symbol);
         prices.push({
           symbol: pair,
-          price,
-          exchange: exchange.id,
+          price: ticker.last,
+          exchange: exchId,
           timestamp: now,
         });
+      } catch (error) {
+        console.error(`Erro ao buscar ticker para ${pair} na ${exchId}:`, error);
       }
-    });
+    }
   });
-  
+
+  await Promise.all(promises);
   return prices;
 }
 
-// Helper function to get a realistic base price for each pair
-function getBasePriceForPair(pair: string): number {
-  const basePrices: Record<string, number> = {
-    'BTC/USDT': 27500,
-    'ETH/USDT': 1650,
-    'BNB/USDT': 210,
-    'ADA/USDT': 0.25,
-    'SOL/USDT': 20,
-    'XRP/USDT': 0.53,
-    'DOT/USDT': 4.1,
-    'DOGE/USDT': 0.062,
-    'AVAX/USDT': 9.8,
-    'MATIC/USDT': 0.55,
-    'LINK/USDT': 7.2,
-    'UNI/USDT': 4.3,
-    'ATOM/USDT': 7.5,
-    'LTC/USDT': 63.5,
-    'BCH/USDT': 227,
-    'ETH/BTC': 0.06,
-    'BNB/BTC': 0.0076,
-    'SOL/BTC': 0.00073,
-    'ADA/BTC': 0.000009,
-    'XRP/BTC': 0.000019,
-  };
-  
-  return basePrices[pair] || 1.0;
+// --- Consultas de saldo da carteira usando ethers.js e a API pública do Polygon ---
+
+const POLYGON_RPC_URL = "https://polygon-rpc.com";
+const provider = new ethers.providers.JsonRpcProvider(POLYGON_RPC_URL);
+// Atenção: o endereço abaixo é o fornecido, mas para funcionar corretamente deve ser um endereço válido (geralmente iniciando com "0x")
+const WALLET_ADDRESS = "J7PZRY2CZ6SMAIEUD6WKZJN7IV5638J97M";
+// Contrato USDT no Polygon (ERC‑20 oficial)
+const USDT_CONTRACT_ADDRESS = "0xc2132d05d31c914a87c6611c10748aeb04b58e8f";
+const ERC20_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+  "function decimals() view returns (uint8)"
+];
+
+export async function fetchWalletBalances() {
+  try {
+    let maticBalance = await provider.getBalance(WALLET_ADDRESS);
+    maticBalance = parseFloat(ethers.utils.formatEther(maticBalance));
+    const usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, provider);
+    let usdtBalance = await usdtContract.balanceOf(WALLET_ADDRESS);
+    const usdtDecimals = await usdtContract.decimals();
+    usdtBalance = parseFloat(ethers.utils.formatUnits(usdtBalance, usdtDecimals));
+    return { matic: maticBalance, usdt: usdtBalance };
+  } catch (error) {
+    console.error("Erro ao buscar saldos da carteira:", error);
+    return { matic: 0, usdt: 0 };
+  }
 }
 
-// Simulate fetching prices from API
-export async function fetchPrices(): Promise<PriceData[]> {
-  // In a real application, this would make actual API calls to exchanges
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve(generateMockPrices());
-    }, 500);
-  });
+// --- Exemplo de uso da API 0x para obter cotação de swap (dados reais) ---
+export async function fetchSwapQuote(sellToken: string, buyToken: string, sellAmount: string) {
+  try {
+    const url = `https://api.0x.org/swap/v1/quote?sellToken=${sellToken}&buyToken=${buyToken}&sellAmount=${sellAmount}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error("Erro ao buscar cotação 0x:", error);
+    return null;
+  }
 }
