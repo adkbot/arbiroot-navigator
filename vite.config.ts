@@ -1,3 +1,4 @@
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -17,6 +18,15 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  optimizeDeps: {
+    include: ['ccxt', 'ethers'],
+    exclude: ['http-proxy-agent', 'https-proxy-agent'],
+  },
+  build: {
+    commonjsOptions: {
+      include: [/ccxt/, /ethers/, /node_modules/],
     },
   },
 }));

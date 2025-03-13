@@ -1,9 +1,14 @@
 import { Logger } from './logger';
 import { ExchangeManager } from './exchange';
 import { WalletManager } from './wallet';
-import { monitoringConfig } from '../config';
+import { monitoringConfig } from '../config/index';
 import { AlertManager } from './alert';
 import { BackupManager } from './backup';
+
+export const monitoringWithHealthCheck = {
+  ...monitoringConfig,
+  healthCheckInterval: 30000 // 30 seconds
+};
 
 export class MonitoringSystem {
   private logger: Logger;
@@ -47,7 +52,7 @@ export class MonitoringSystem {
   private startHealthCheckInterval(): void {
     this.healthCheckInterval = setInterval(
       () => this.performHealthCheck(),
-      monitoringConfig.healthCheckInterval
+      monitoringWithHealthCheck.healthCheckInterval
     );
   }
 

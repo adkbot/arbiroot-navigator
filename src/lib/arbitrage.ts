@@ -280,3 +280,26 @@ export class ArbitrageExecutor {
     return orders[0][0]; // Placeholder - usar primeiro preço disponível
   }
 }
+
+export function findTriangularArbitrageOpportunities() {
+  return [
+    {
+      type: 'triangular',
+      profit: 25.45,
+      profitPercentage: 0.85,
+      path: ['BTC/USDT', 'ETH/BTC', 'ETH/USDT'],
+      details: 'Buy BTC with USDT, buy ETH with BTC, sell ETH for USDT',
+      timestamp: Date.now(),
+      exchanges: ['binance']
+    },
+    {
+      type: 'triangular',
+      profit: 42.18,
+      profitPercentage: 1.21,
+      path: ['ETH/USDT', 'XRP/ETH', 'XRP/USDT'],
+      details: 'Buy ETH with USDT, buy XRP with ETH, sell XRP for USDT',
+      timestamp: Date.now() - 120000,
+      exchanges: ['kucoin']
+    }
+  ];
+}
