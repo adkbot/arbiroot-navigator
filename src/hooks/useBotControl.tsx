@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from "@/components/ui/use-toast";
 import { useWallet } from '@/contexts/WalletContext';
@@ -22,6 +21,7 @@ export function useBotControl() {
   const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
   const { wallet, updateWalletBalance } = useWallet();
   const [exchangeManager] = useState(() => new ExchangeManager());
+  const [lastScanTime, setLastScanTime] = useState<number | null>(null);
 
   // Limpar intervalo do bot quando o componente for desmontado
   useEffect(() => {
@@ -34,51 +34,60 @@ export function useBotControl() {
 
   const playSound = (type: 'start' | 'end') => {
     // Criar e tocar um som
-    const context = new AudioContext();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    
-    if (type === 'start') {
-      // Tom mais alto para iniciar
-      oscillator.frequency.value = 800;
-      oscillator.type = 'sine';
-    } else {
-      // Dois bipes para finalizar
-      oscillator.frequency.value = 1000;
-      oscillator.type = 'sine';
+    try {
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
       
-      // Programar dois bipes
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      
+      if (type === 'start') {
+        // Tom mais alto para iniciar
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+      } else {
+        // Dois bipes para finalizar
+        oscillator.frequency.value = 1000;
+        oscillator.type = 'sine';
+        
+        // Programar dois bipes
+        gain.gain.setValueAtTime(0.5, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.5, context.currentTime + 0.3);
+        gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.5);
+        
+        oscillator.start(context.currentTime);
+        oscillator.stop(context.currentTime + 0.6);
+        return;
+      }
+      
+      // Um único bipe para iniciar
       gain.gain.setValueAtTime(0.5, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.2);
-      gain.gain.setValueAtTime(0.5, context.currentTime + 0.3);
-      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.5);
+      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.3);
       
       oscillator.start(context.currentTime);
-      oscillator.stop(context.currentTime + 0.6);
-      return;
+      oscillator.stop(context.currentTime + 0.4);
+    } catch (error) {
+      console.error("Erro ao reproduzir som:", error);
     }
-    
-    // Um único bipe para iniciar
-    gain.gain.setValueAtTime(0.5, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.3);
-    
-    oscillator.start(context.currentTime);
-    oscillator.stop(context.currentTime + 0.4);
   };
   
   const executeArbitrageOpportunity = async (opportunity: ArbitrageOpportunity) => {
     if (!wallet?.isAuthorized) {
       console.error("Carteira não autorizada para realizar operações");
+      toast({
+        variant: "destructive",
+        title: "Carteira não autorizada",
+        description: "Por favor, autorize a carteira para realizar operações.",
+      });
       return false;
     }
     
     try {
       setBotStatus('trading');
       
-      console.log(`Executando arbitragem: ${opportunity.details}`);
+      console.log(`🚀 Executando arbitragem: ${opportunity.details}`);
       
       // Verificar saldo da carteira para garantir fundos suficientes
       if (wallet.balance.usdt < opportunity.minimumRequired) {
@@ -91,19 +100,29 @@ export function useBotControl() {
       }
       
       // Verificar liquidez nos mercados
+      let liquidezSuficiente = true;
+      
       for (const exchange of opportunity.exchanges) {
         for (const symbol of opportunity.path) {
           const liquidityInfo = await exchangeManager.checkLiquidity(exchange, symbol, opportunity.minimumRequired);
           
           if (liquidityInfo.bidVolume < opportunity.minimumRequired || liquidityInfo.askVolume < opportunity.minimumRequired) {
-            toast({
-              variant: "destructive",
-              title: "Liquidez insuficiente",
-              description: `Liquidez insuficiente em ${exchange} para o par ${symbol}.`,
-            });
-            return false;
+            console.warn(`Liquidez insuficiente em ${exchange} para o par ${symbol}.`);
+            liquidezSuficiente = false;
+            break;
           }
         }
+        if (!liquidezSuficiente) break;
+      }
+      
+      if (!liquidezSuficiente) {
+        toast({
+          variant: "warning",
+          title: "Liquidez insuficiente",
+          description: "Não há liquidez suficiente para executar esta arbitragem.",
+        });
+        setBotStatus('waiting');
+        return false;
       }
       
       // Executar as ordens necessárias para realizar a arbitragem
@@ -113,6 +132,8 @@ export function useBotControl() {
         // Arbitragem simples (entre duas exchanges)
         const [exchange1, exchange2] = opportunity.exchanges;
         const symbol = opportunity.path[0];
+        
+        console.log(`Executando arbitragem simples entre ${exchange1} e ${exchange2} para o símbolo ${symbol}`);
         
         // Comprar na exchange com preço mais baixo
         const buy = await exchangeManager.createOrder(
@@ -137,6 +158,8 @@ export function useBotControl() {
         // Arbitragem triangular (dentro da mesma exchange)
         const exchange = opportunity.exchanges[0];
         
+        console.log(`Executando arbitragem triangular em ${exchange} com caminho: ${opportunity.path.join(' → ')}`);
+        
         // Executar cada etapa do ciclo triangular
         let amount = opportunity.minimumRequired;
         
@@ -146,6 +169,8 @@ export function useBotControl() {
           
           // Determinar se é uma compra ou venda com base na direção
           const side = i % 2 === 0 ? 'buy' : 'sell';
+          
+          console.log(`Etapa ${i+1}: ${side} ${currentSymbol}/${nextSymbol}`);
           
           const trade = await exchangeManager.createOrder(
             exchange,
@@ -161,7 +186,14 @@ export function useBotControl() {
         }
       }
       
+      if (trades.length === 0) {
+        console.error("Nenhuma ordem foi criada para a arbitragem");
+        setBotStatus('waiting');
+        return false;
+      }
+      
       // Verificar o resultado da arbitragem
+      console.log("Verificando resultado da arbitragem...");
       const arbitrageResult = await exchangeManager.verifyArbitrageResult(trades);
       
       if (arbitrageResult) {
@@ -182,7 +214,7 @@ export function useBotControl() {
         
         playSound('end');
         
-        console.log(`Arbitragem concluída com sucesso. Lucro: $${realProfit.toFixed(2)}`);
+        console.log(`✅ Arbitragem concluída com sucesso. Lucro: $${realProfit.toFixed(2)}`);
         return true;
       } else {
         toast({
@@ -190,10 +222,11 @@ export function useBotControl() {
           title: "Falha na arbitragem",
           description: "A operação de arbitragem não foi concluída com sucesso.",
         });
+        console.error("❌ Arbitragem não foi bem-sucedida");
         return false;
       }
     } catch (error) {
-      console.error("Erro ao executar arbitragem:", error);
+      console.error("❌ Erro ao executar arbitragem:", error);
       toast({
         variant: "destructive",
         title: "Erro na execução",
@@ -210,8 +243,11 @@ export function useBotControl() {
     if (!botActive || botPaused) return;
     
     setBotStatus('scanning');
+    setLastScanTime(Date.now());
     
     try {
+      console.log("🔍 Escaneando mercados em busca de oportunidades de arbitragem...");
+      
       // Buscar preços reais
       const priceData = await fetchPrices();
       setPrices(priceData);
@@ -226,23 +262,33 @@ export function useBotControl() {
         
         setOpportunities(ops);
         
+        console.log(`Encontradas ${ops.length} oportunidades de arbitragem`);
+        
         // Se houver oportunidades lucrativas, executar a arbitragem
         const profitableOps = ops.filter(o => o.profitPercentage > 0.8);
         
         if (profitableOps.length > 0 && wallet?.isAuthorized) {
+          console.log(`Encontradas ${profitableOps.length} oportunidades lucrativas!`);
+          
           // Executar a arbitragem mais lucrativa
           const bestOpportunity = profitableOps[0];
+          console.log(`Melhor oportunidade: ${bestOpportunity.details} (${bestOpportunity.profitPercentage.toFixed(2)}%)`);
+          
           await executeArbitrageOpportunity(bestOpportunity);
         } else {
           // Sem oportunidades lucrativas no momento
+          console.log("Nenhuma oportunidade lucrativa encontrada neste momento");
           setBotStatus('waiting');
         }
+      } else {
+        console.warn("Nenhum dado de preço disponível");
+        setBotStatus('waiting');
       }
     } catch (error) {
-      console.error("Erro ao buscar oportunidades:", error);
+      console.error("❌ Erro ao buscar oportunidades:", error);
       setBotStatus('waiting');
     }
-  }, [botActive, botPaused, wallet, updateWalletBalance]);
+  }, [botActive, botPaused, wallet, executeArbitrageOpportunity]);
 
   const toggleBot = () => {
     if (botActive) {
@@ -337,9 +383,11 @@ export function useBotControl() {
     botStatus,
     totalArbitrages,
     opportunities,
+    lastScanTime,
     toggleBot,
     pauseBot,
     restartBot,
     stopBot
   };
 }
+
