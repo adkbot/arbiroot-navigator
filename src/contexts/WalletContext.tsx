@@ -1,6 +1,23 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { WalletInfo, ChainType } from '@/lib/types';
 import { toast } from "@/components/ui/use-toast";
+
+enum ChainType {
+  POLYGON = 'polygon',
+  ETHEREUM = 'ethereum',
+  BINANCE = 'binance',
+  ARBITRUM = 'arbitrum'
+}
+
+interface WalletInfo {
+  address: string;
+  chain: ChainType;
+  balance: {
+    native: number;
+    usdt: number;
+  };
+  isConnected: boolean;
+  isAuthorized: boolean;
+}
 
 interface WalletContextType {
   wallet: WalletInfo | null;
@@ -9,6 +26,7 @@ interface WalletContextType {
   disconnectWallet: () => void;
   authorizeSpending: () => Promise<void>;
   updateWalletBalance: () => Promise<void>;
+  getGasPrice: () => Promise<number>;
 }
 
 interface WindowWithEthereum extends Window {
@@ -20,15 +38,24 @@ interface WindowWithEthereum extends Window {
   };
 }
 
-const chainIdMap: Record<ChainType, string> = {
-  polygon: '0x89', // Polygon Mainnet
-  ethereum: '0x1', // Ethereum Mainnet
-  binance: '0x38', // Binance Smart Chain
-  arbitrum: '0xa4b1' // Arbitrum
-};
+// RPCs confiáveis
+const ALCHEMY_RPC = "https://eth-mainnet.alchemyapi.io/v2/SUA_CHAVE";
+const INFURA_RPC = "https://mainnet.infura.io/v3/SUA_CHAVE";
 
-const TEST_ADDRESS = "J7PZRY2CZ6SMAIEUD6WKZJN7IV5638J97M";
-const DEFAULT_USDT_BALANCE = 18432.75;
+const getRPCProvider = (chain: ChainType) => {
+  switch (chain) {
+    case ChainType.ETHEREUM:
+      return ALCHEMY_RPC;
+    case ChainType.POLYGON:
+      return "https://polygon-rpc.com";
+    case ChainType.BINANCE:
+      return "https://bsc-dataseed.binance.org/";
+    case ChainType.ARBITRUM:
+      return "https://arb1.arbitrum.io/rpc";
+    default:
+      throw new Error("Rede não suportada");
+  }
+};
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
@@ -60,41 +87,44 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return !!(window as WindowWithEthereum).ethereum;
   };
 
+  const getGasPrice = async (): Promise<number> => {
+    try {
+      const ethereum = (window as WindowWithEthereum).ethereum;
+      if (!ethereum) throw new Error("MetaMask não encontrado");
+
+      const gasPriceWei = await ethereum.request({ method: 'eth_gasPrice' });
+      return parseInt(gasPriceWei, 16) / 1e9;
+    } catch (error) {
+      console.error("Erro ao obter taxa de gás:", error);
+      return 0;
+    }
+  };
+
   const updateWalletBalance = async (): Promise<void> => {
     if (!wallet) return;
     
     try {
-      const ethereum = (window as WindowWithEthereum).ethereum;
-      
-      let nativeBalance = wallet.balance.native;
-      
-      if (ethereum) {
-        const balanceWei = await ethereum.request({
-          method: 'eth_getBalance',
-          params: [wallet.address, 'latest'],
-        });
-        
-        nativeBalance = parseInt(balanceWei, 16) / 1e18;
-      }
-      
-      let usdtBalance = wallet.balance.usdt;
-      if (wallet.address === TEST_ADDRESS || wallet.address.includes(TEST_ADDRESS)) {
-        usdtBalance = DEFAULT_USDT_BALANCE;
-      }
-      
-      setWallet(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          balance: {
-            native: nativeBalance,
-            usdt: usdtBalance
-          }
-        };
+      const rpcUrl = getRPCProvider(wallet.chain);
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_getBalance",
+          params: [wallet.address, "latest"],
+          id: 1,
+        }),
       });
+      const data = await response.json();
+      const nativeBalance = parseInt(data.result, 16) / 1e18;
+
+      setWallet(prev => prev ? {
+        ...prev,
+        balance: { native: nativeBalance, usdt: prev.balance.usdt }
+      } : null);
       
     } catch (error) {
-      console.error('Error updating wallet balance:', error);
+      console.error('Erro ao atualizar saldo:', error);
     }
   };
 
@@ -111,79 +141,54 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setIsConnecting(false);
         return Promise.reject("MetaMask não encontrado");
       }
-      
+
       const ethereum = (window as WindowWithEthereum).ethereum;
-      let accounts = await ethereum?.request({ method: 'eth_requestAccounts' });
-      
+      const accounts = await ethereum?.request({ method: 'eth_requestAccounts' });
+
       if (!accounts || accounts.length === 0) {
-        accounts = [TEST_ADDRESS];
+        throw new Error("Nenhuma conta encontrada no MetaMask.");
       }
-      
+
       const address = accounts[0];
-      
+
       let currentChainId = await ethereum?.request({ method: 'eth_chainId' });
-      const targetChainId = chainIdMap[chain];
-      
+      const targetChainId = getRPCProvider(chain);
+
       if (currentChainId !== targetChainId && ethereum) {
-        try {
-          await ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: targetChainId }],
-          });
-          currentChainId = targetChainId;
-        } catch (switchError: any) {
-          if (switchError.code === 4902) {
-            toast({
-              variant: "destructive",
-              title: "Erro de Rede",
-              description: `Por favor, adicione a rede ${chain} ao seu MetaMask primeiro.`,
-            });
-          }
-        }
-      }
-      
-      let nativeBalance = 0;
-      if (ethereum) {
-        const balanceWei = await ethereum.request({
-          method: 'eth_getBalance',
-          params: [address, 'latest'],
+        await ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: targetChainId }],
         });
-        nativeBalance = parseInt(balanceWei, 16) / 1e18;
-      } else {
-        nativeBalance = 0.12345;
       }
-      
-      let usdtBalance = 0;
-      if (address === TEST_ADDRESS || address.includes(TEST_ADDRESS)) {
-        usdtBalance = DEFAULT_USDT_BALANCE;
-      } else {
-        usdtBalance = parseFloat((Math.random() * 10000).toFixed(2));
-      }
-      
+
+      const balanceWei = await ethereum.request({
+        method: 'eth_getBalance',
+        params: [address, 'latest'],
+      });
+      const nativeBalance = parseInt(balanceWei, 16) / 1e18;
+
       const newWallet: WalletInfo = {
-        address: address,
-        chain: chain,
-        balance: {
-          usdt: usdtBalance,
-          native: nativeBalance
-        },
+        address,
+        chain,
+        balance: { usdt: 0, native: nativeBalance },
         isConnected: true,
         isAuthorized: false
       };
-      
+
       setWallet(newWallet);
-      
+
+      const gasPrice = await getGasPrice();
       toast({
         title: "Carteira Conectada",
-        description: `Conectado a ${address.substring(0, 6)}...${address.substring(address.length - 4)} na rede ${chain}`,
+        description: `Conectado a ${address.substring(0, 6)}...${address.substring(address.length - 4)} na rede ${chain}. Taxa de gás: ${gasPrice.toFixed(2)} Gwei.`,
       });
-      
+
     } catch (error: any) {
-      console.error('Error connecting to wallet:', error);
+      console.error('Erro ao conectar carteira:', error);
       toast({
         variant: "destructive",
         title: "Falha na Conexão",
-        description: error.message || "Falha ao conectar carteira. Por favor, tente novamente.",
+        description: error.message || "Erro ao conectar carteira.",
       });
       throw error;
     } finally {
@@ -193,6 +198,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const disconnectWallet = () => {
     setWallet(null);
+    localStorage.removeItem('wallet');
     toast({
       title: "Carteira Desconectada",
       description: "Sua carteira foi desconectada",
@@ -200,41 +206,28 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const authorizeSpending = async (): Promise<void> => {
-    if (!wallet) return Promise.reject('No wallet connected');
+    if (!wallet) return Promise.reject('Nenhuma carteira conectada');
     
     setIsConnecting(true);
     
     try {
-      if (!hasMetaMask()) {
-        throw new Error("MetaMask not found");
-      }
-      
+      if (!hasMetaMask()) throw new Error("MetaMask não encontrado");
+
       const ethereum = (window as WindowWithEthereum).ethereum;
-      
-      const message = `I authorize ArbiRoot Navigator to spend my USDT on ${wallet.chain} network for arbitrage trading`;
+      const message = `Autorizo este contrato a gastar USDT na rede ${wallet.chain}`;
       const signature = await ethereum?.request({
         method: 'personal_sign',
         params: [message, wallet.address],
       });
-      
-      if (!signature) {
-        throw new Error("Failed to get signature");
-      }
-      
+
+      if (!signature) throw new Error("Falha ao obter assinatura");
+
       setWallet(prev => prev ? { ...prev, isAuthorized: true } : null);
-      
-      toast({
-        title: "Spending Authorized",
-        description: "The bot is now authorized to perform arbitrage trades",
-      });
-      
+
+      toast({ title: "Autorização Concedida", description: "Transação autorizada com sucesso." });
+
     } catch (error: any) {
-      console.error('Error authorizing spending:', error);
-      toast({
-        variant: "destructive",
-        title: "Authorization Failed",
-        description: error.message || "Failed to authorize spending. Please try again.",
-      });
+      toast({ variant: "destructive", title: "Erro ao autorizar", description: error.message });
       throw error;
     } finally {
       setIsConnecting(false);
@@ -242,16 +235,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   return (
-    <WalletContext.Provider
-      value={{
-        wallet,
-        isConnecting,
-        connectWallet,
-        disconnectWallet,
-        authorizeSpending,
-        updateWalletBalance
-      }}
-    >
+    <WalletContext.Provider value={{ wallet, isConnecting, connectWallet, disconnectWallet, authorizeSpending, updateWalletBalance, getGasPrice }}>
       {children}
     </WalletContext.Provider>
   );
@@ -259,8 +243,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
 export const useWallet = (): WalletContextType => {
   const context = useContext(WalletContext);
-  if (context === undefined) {
-    throw new Error('useWallet must be used within a WalletProvider');
-  }
+  if (!context) throw new Error('useWallet deve ser usado dentro de WalletProvider');
   return context;
 };
