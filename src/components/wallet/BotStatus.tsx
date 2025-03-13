@@ -19,16 +19,16 @@ const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
           {botStatus === 'scanning' && (
             <span className="flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Escaneando
+              Escaneando Mercados
             </span>
           )}
           {botStatus === 'trading' && (
             <span className="flex items-center gap-1 text-green-500">
               <TrendingUp className="h-3 w-3" />
-              Negociando
+              Executando Trade
             </span>
           )}
-          {botStatus === 'waiting' && "Aguardando"}
+          {botStatus === 'waiting' && "Aguardando Oportunidade"}
           {botStatus === 'idle' && "Inativo"}
           {botStatus === 'paused' && (
             <span className="flex items-center gap-1 text-amber-500">
@@ -40,7 +40,7 @@ const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
       </div>
       
       <div className="flex justify-between items-center">
-        <span className="text-sm">Total de Arbitragens</span>
+        <span className="text-sm">Total de Arbitragens Executadas</span>
         <span className="font-medium">{totalArbitrages}</span>
       </div>
     </div>

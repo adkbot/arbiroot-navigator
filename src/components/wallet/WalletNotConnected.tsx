@@ -34,7 +34,7 @@ const WalletNotConnected = () => {
         <div className="flex flex-col items-center justify-center py-6 space-y-4">
           <Wallet className="h-12 w-12 text-muted-foreground" />
           <p className="text-muted-foreground text-center">
-            Conecte sua carteira para habilitar arbitragem
+            Conecte sua carteira para executar operações de arbitragem em tempo real
           </p>
           
           <div className="w-full max-w-xs">
