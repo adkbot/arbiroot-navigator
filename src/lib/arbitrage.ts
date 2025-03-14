@@ -12,13 +12,6 @@ interface ArbitrageOpportunity {
   timestamp: number;
 }
 
-interface TradeResult {
-  success: boolean;
-  profit?: number;
-  error?: string;
-  transactions: any[];
-}
-
 export class ArbitrageExecutor {
   private logger: Logger;
   private exchangeManager: ExchangeManager;
@@ -81,15 +74,6 @@ export class ArbitrageExecutor {
 
       if (validOpportunities.length > 0) {
         const bestOpportunity = validOpportunities[0];
-        
-        // Alertar sobre oportunidade encontrada
-        await this.alertManager.sendAlert(
-          'opportunity',
-          `Oportunidade de arbitragem encontrada: ${bestOpportunity.expectedProfit}% de lucro`,
-          bestOpportunity
-        );
-
-        // Executar a arbitragem
         await this.executeArbitrage(bestOpportunity);
       }
 
@@ -106,8 +90,7 @@ export class ArbitrageExecutor {
     const commonPairs = [
       ['BTC/USDT', 'ETH/BTC', 'ETH/USDT'],
       ['BTC/USDT', 'BNB/BTC', 'BNB/USDT'],
-      ['ETH/USDT', 'BNB/ETH', 'BNB/USDT'],
-      // Adicione mais combinações conforme necessário
+      ['ETH/USDT', 'BNB/ETH', 'BNB/USDT']
     ];
 
     for (const pairs of commonPairs) {
@@ -152,43 +135,26 @@ export class ArbitrageExecutor {
       let initialAmount = botConfig.maxTradeAmount;
       let currentAmount = initialAmount;
 
-      const transactions = [];
-
       // Primeira trade
       const firstBook = orderBooks[0];
-      const firstRate = firstBook.asks[0][0]; // Melhor preço de venda
+      const firstRate = firstBook.asks[0][0];
       currentAmount = currentAmount / firstRate;
-      transactions.push({
-        pair: pairs[0],
-        rate: firstRate,
-        amount: currentAmount
-      });
 
       // Segunda trade
       const secondBook = orderBooks[1];
       const secondRate = secondBook.asks[0][0];
       currentAmount = currentAmount / secondRate;
-      transactions.push({
-        pair: pairs[1],
-        rate: secondRate,
-        amount: currentAmount
-      });
 
       // Terceira trade (fechamento)
       const thirdBook = orderBooks[2];
-      const thirdRate = thirdBook.bids[0][0]; // Melhor preço de compra
+      const thirdRate = thirdBook.bids[0][0];
       currentAmount = currentAmount * thirdRate;
-      transactions.push({
-        pair: pairs[2],
-        rate: thirdRate,
-        amount: currentAmount
-      });
 
       // Calcular lucro
       const profit = ((currentAmount - initialAmount) / initialAmount) * 100;
 
       // Considerar taxas
-      const totalFees = this.calculateTotalFees(transactions, exchangeName);
+      const totalFees = this.calculateTotalFees(exchangeName);
       const netProfit = profit - totalFees;
 
       if (netProfit > botConfig.minProfitPercentage) {
@@ -209,10 +175,10 @@ export class ArbitrageExecutor {
     }
   }
 
-  private calculateTotalFees(transactions: any[], exchangeName: string): number {
+  private calculateTotalFees(exchangeName: string): number {
     const exchange = this.exchangeManager.getExchange(exchangeName);
     const feePerTrade = exchange.getTradingFee();
-    return transactions.length * feePerTrade;
+    return feePerTrade * 3; // 3 trades na arbitragem triangular
   }
 
   private validateOpportunity(opportunity: ArbitrageOpportunity): boolean {
@@ -265,23 +231,11 @@ export class ArbitrageExecutor {
       const finalBalance = await exchange.fetchBalance();
       const profit = this.calculateActualProfit(trades);
 
-      // Registrar sucesso
-      await this.alertManager.sendAlert(
-        'info',
-        `Arbitragem concluída com sucesso: ${profit}% de lucro`,
-        { sessionId, trades }
-      );
+      this.logger.info(`Arbitragem concluída com sucesso: ${profit}% de lucro`);
 
     } catch (error) {
-      // Em caso de erro, tentar reverter trades
       this.logger.error(`Erro na execução da arbitragem: ${error.message}`);
       await this.rollbackTrades(opportunity.exchanges[0], sessionId);
-      
-      await this.alertManager.sendAlert(
-        'error',
-        `Erro na arbitragem: ${error.message}`,
-        { sessionId }
-      );
     }
   }
 
@@ -312,7 +266,6 @@ export class ArbitrageExecutor {
     try {
       const exchange = this.exchangeManager.getExchange(exchangeName);
       await exchange.cancelAllOrders();
-      
       this.logger.info(`Trades revertidos para sessão ${sessionId}`);
     } catch (error) {
       this.logger.error(`Erro ao reverter trades: ${error.message}`);
