@@ -1,282 +1,321 @@
-import { ExchangeManager } from './exchange';
 import { Logger } from './logger';
-import {
-  ArbitrageOpportunity,
-  ArbitrageSession,
-  TradeResult,
-  PriceData,
-  RiskMetrics,
-  LiquidityInfo
-} from './types';
+import { ExchangeManager } from './exchange';
+import { WalletManager } from './wallet';
+import { AlertManager } from './alert';
+import { botConfig } from '../config';
+
+interface ArbitrageOpportunity {
+  exchanges: string[];
+  path: string[];
+  expectedProfit: number;
+  requiredBalance: number;
+  timestamp: number;
+}
+
+interface TradeResult {
+  success: boolean;
+  profit?: number;
+  error?: string;
+  transactions: any[];
+}
 
 export class ArbitrageExecutor {
-  private exchangeManager: ExchangeManager;
   private logger: Logger;
-  private sessions: Map<string, ArbitrageSession>;
-  private readonly MIN_PROFIT_AFTER_FEES = 0.002; // 0.2%
-  private readonly MAX_SLIPPAGE = 0.005; // 0.5%
-  private readonly MIN_LIQUIDITY_RATIO = 3; // Volume disponível deve ser 3x maior que o necessário
+  private exchangeManager: ExchangeManager;
+  private walletManager: WalletManager;
+  private alertManager: AlertManager;
+  private isRunning: boolean = false;
+  private executionInterval: NodeJS.Timeout | null = null;
 
-  constructor(exchangeManager: ExchangeManager) {
+  constructor(
+    logger: Logger,
+    exchangeManager: ExchangeManager,
+    walletManager: WalletManager,
+    alertManager: AlertManager
+  ) {
+    this.logger = logger;
     this.exchangeManager = exchangeManager;
-    this.logger = new Logger('ArbitrageExecutor');
-    this.sessions = new Map();
+    this.walletManager = walletManager;
+    this.alertManager = alertManager;
   }
 
-  private createSession(opportunity: ArbitrageOpportunity): ArbitrageSession {
-    const session: ArbitrageSession = {
-      id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      startTime: Date.now(),
-      trades: [],
-      status: 'pending',
-      profitTarget: opportunity.profit,
-      currentProfit: 0,
-      errors: []
-    };
-    this.sessions.set(session.id, session);
-    return session;
-  }
+  public async start(): Promise<void> {
+    if (this.isRunning) {
+      this.logger.warn('Sistema de arbitragem já está em execução');
+      return;
+    }
 
-  async executeTriangularArbitrage(opportunity: ArbitrageOpportunity): Promise<void> {
-    const session = this.createSession(opportunity);
+    this.isRunning = true;
+    this.logger.info('Iniciando sistema de arbitragem');
     
-    try {
-      this.logger.info(`Iniciando arbitragem triangular: ${opportunity.details}`);
-      session.status = 'executing';
+    // Iniciar loop de execução
+    this.executionInterval = setInterval(
+      () => this.executeArbitrageLoop(),
+      1000 // Verificar oportunidades a cada segundo
+    );
+  }
 
-      // 1. Verificar saldos e condições de risco
-      await this.validateBalances(opportunity);
+  public async stop(): Promise<void> {
+    if (!this.isRunning) {
+      return;
+    }
+
+    this.isRunning = false;
+    if (this.executionInterval) {
+      clearInterval(this.executionInterval);
+      this.executionInterval = null;
+    }
+    
+    this.logger.info('Sistema de arbitragem parado');
+  }
+
+  private async executeArbitrageLoop(): Promise<void> {
+    try {
+      // Buscar oportunidades de arbitragem
+      const opportunities = await this.findArbitrageOpportunities();
       
-      // 2. Verificar liquidez em todos os pares
-      await this.validateLiquidity(opportunity);
-      
-      // 3. Calcular métricas de risco
-      const riskMetrics = await this.calculateRiskMetrics(opportunity);
-      if (riskMetrics.executionRisk === 'high') {
-        throw new Error('Risco de execução muito alto');
+      // Filtrar e ordenar por maior lucro
+      const validOpportunities = opportunities
+        .filter(opp => this.validateOpportunity(opp))
+        .sort((a, b) => b.expectedProfit - a.expectedProfit);
+
+      if (validOpportunities.length > 0) {
+        const bestOpportunity = validOpportunities[0];
+        
+        // Alertar sobre oportunidade encontrada
+        await this.alertManager.sendAlert(
+          'opportunity',
+          `Oportunidade de arbitragem encontrada: ${bestOpportunity.expectedProfit}% de lucro`,
+          bestOpportunity
+        );
+
+        // Executar a arbitragem
+        await this.executeArbitrage(bestOpportunity);
       }
 
-      // 4. Executar trades em sequência
-      for (const [index, trade] of opportunity.path.entries()) {
-        const result = await this.executeTrade(trade, opportunity.exchanges[index], session);
-        session.trades.push(result);
-        
-        // Verificar se ainda é lucrativo continuar
-        if (!this.isStillProfitable(session, opportunity)) {
-          throw new Error('Oportunidade não é mais lucrativa');
+    } catch (error) {
+      this.logger.error(`Erro no loop de arbitragem: ${error.message}`);
+    }
+  }
+
+  private async findArbitrageOpportunities(): Promise<ArbitrageOpportunity[]> {
+    const opportunities: ArbitrageOpportunity[] = [];
+    const exchanges = this.exchangeManager.getExchanges();
+    
+    // Lista de pares comuns para verificar
+    const commonPairs = [
+      ['BTC/USDT', 'ETH/BTC', 'ETH/USDT'],
+      ['BTC/USDT', 'BNB/BTC', 'BNB/USDT'],
+      ['ETH/USDT', 'BNB/ETH', 'BNB/USDT'],
+      // Adicione mais combinações conforme necessário
+    ];
+
+    for (const pairs of commonPairs) {
+      for (const exchange of exchanges) {
+        try {
+          // Verificar se o exchange suporta todos os pares
+          const supported = pairs.every(pair => exchange.hasPair(pair));
+          if (!supported) continue;
+
+          // Buscar order books
+          const orderBooks = await Promise.all(
+            pairs.map(pair => exchange.fetchOrderBook(pair))
+          );
+
+          // Calcular oportunidade
+          const opportunity = this.calculateTriangularArbitrage(
+            exchange.name,
+            pairs,
+            orderBooks
+          );
+
+          if (opportunity && opportunity.expectedProfit > botConfig.minProfitPercentage) {
+            opportunities.push(opportunity);
+          }
+
+        } catch (error) {
+          this.logger.error(`Erro ao buscar oportunidades em ${exchange.name}: ${error.message}`);
         }
       }
-
-      // 5. Verificar resultado final
-      await this.verifyArbitrageResult(session);
-      
-      session.status = 'completed';
-      this.logger.info(`Arbitragem concluída com sucesso: ${session.id}`);
-      
-    } catch (error) {
-      session.status = 'failed';
-      session.errors.push(error.message);
-      this.logger.error(`Erro na arbitragem ${session.id}:`, error);
-      
-      // Iniciar processo de rollback se necessário
-      if (session.trades.length > 0) {
-        await this.rollbackTrades(session);
-      }
-      
-      throw error;
     }
+
+    return opportunities;
   }
 
-  private async validateBalances(opportunity: ArbitrageOpportunity): Promise<void> {
-    for (const exchangeId of opportunity.exchanges) {
-      const balance = await this.exchangeManager.fetchBalance(exchangeId, true);
-      
-      // Verificar se há saldo suficiente para a operação
-      if (!this.hasEnoughBalance(balance, opportunity)) {
-        throw new Error(`Saldo insuficiente na exchange ${exchangeId}`);
-      }
-    }
-  }
-
-  private async validateLiquidity(opportunity: ArbitrageOpportunity): Promise<void> {
-    const liquidityChecks: LiquidityInfo[] = [];
-    
-    for (const [index, symbol] of opportunity.path.entries()) {
-      const exchangeId = opportunity.exchanges[index];
-      const requiredAmount = opportunity.minimumRequired || 0;
-      
-      const liquidity = await this.exchangeManager.checkLiquidity(
-        exchangeId,
-        symbol,
-        requiredAmount * this.MIN_LIQUIDITY_RATIO
-      );
-      
-      if (!liquidity.isLiquid) {
-        throw new Error(`Liquidez insuficiente para ${symbol} em ${exchangeId}`);
-      }
-      
-      liquidityChecks.push(liquidity);
-    }
-  }
-
-  private async calculateRiskMetrics(opportunity: ArbitrageOpportunity): Promise<RiskMetrics> {
-    const metrics: RiskMetrics = {
-      volatility: 0,
-      slippageEstimate: 0,
-      liquidityScore: 0,
-      executionRisk: 'low',
-      maxLoss: 0
-    };
-
-    // Calcular volatilidade média dos pares
-    for (const [index, symbol] of opportunity.path.entries()) {
-      const exchangeId = opportunity.exchanges[index];
-      const ticker = await this.exchangeManager.fetchTicker(exchangeId, symbol);
-      
-      // Cálculo simplificado de volatilidade usando spread
-      const spread = (ticker.ask - ticker.bid) / ticker.bid;
-      metrics.volatility += spread;
-      
-      // Estimar slippage baseado no volume
-      const slippage = this.estimateSlippage(ticker);
-      metrics.slippageEstimate += slippage;
-    }
-
-    metrics.volatility /= opportunity.path.length;
-    metrics.slippageEstimate /= opportunity.path.length;
-    
-    // Determinar nível de risco
-    if (metrics.volatility > 0.01 || metrics.slippageEstimate > this.MAX_SLIPPAGE) {
-      metrics.executionRisk = 'high';
-    } else if (metrics.volatility > 0.005 || metrics.slippageEstimate > this.MAX_SLIPPAGE / 2) {
-      metrics.executionRisk = 'medium';
-    }
-
-    // Calcular potencial máximo de perda
-    metrics.maxLoss = opportunity.minimumRequired * (metrics.slippageEstimate + metrics.volatility);
-
-    return metrics;
-  }
-
-  private async executeTrade(
-    symbol: string,
-    exchangeId: string,
-    session: ArbitrageSession
-  ): Promise<TradeResult> {
+  private calculateTriangularArbitrage(
+    exchangeName: string,
+    pairs: string[],
+    orderBooks: any[]
+  ): ArbitrageOpportunity | null {
     try {
-      const orderType = 'limit'; // Usar ordem limit para melhor preço
-      const side = this.determineTradeSide(symbol, session);
-      const amount = this.calculateTradeAmount(symbol, session);
-      const price = await this.calculateOptimalPrice(symbol, exchangeId, side);
+      // Simulação de trades para calcular lucro potencial
+      let initialAmount = botConfig.maxTradeAmount;
+      let currentAmount = initialAmount;
 
-      const result = await this.exchangeManager.createOrder(
-        exchangeId,
-        symbol,
-        orderType,
-        side,
-        amount,
-        price
+      const transactions = [];
+
+      // Primeira trade
+      const firstBook = orderBooks[0];
+      const firstRate = firstBook.asks[0][0]; // Melhor preço de venda
+      currentAmount = currentAmount / firstRate;
+      transactions.push({
+        pair: pairs[0],
+        rate: firstRate,
+        amount: currentAmount
+      });
+
+      // Segunda trade
+      const secondBook = orderBooks[1];
+      const secondRate = secondBook.asks[0][0];
+      currentAmount = currentAmount / secondRate;
+      transactions.push({
+        pair: pairs[1],
+        rate: secondRate,
+        amount: currentAmount
+      });
+
+      // Terceira trade (fechamento)
+      const thirdBook = orderBooks[2];
+      const thirdRate = thirdBook.bids[0][0]; // Melhor preço de compra
+      currentAmount = currentAmount * thirdRate;
+      transactions.push({
+        pair: pairs[2],
+        rate: thirdRate,
+        amount: currentAmount
+      });
+
+      // Calcular lucro
+      const profit = ((currentAmount - initialAmount) / initialAmount) * 100;
+
+      // Considerar taxas
+      const totalFees = this.calculateTotalFees(transactions, exchangeName);
+      const netProfit = profit - totalFees;
+
+      if (netProfit > botConfig.minProfitPercentage) {
+        return {
+          exchanges: [exchangeName],
+          path: pairs,
+          expectedProfit: netProfit,
+          requiredBalance: initialAmount,
+          timestamp: Date.now()
+        };
+      }
+
+      return null;
+
+    } catch (error) {
+      this.logger.error(`Erro ao calcular arbitragem: ${error.message}`);
+      return null;
+    }
+  }
+
+  private calculateTotalFees(transactions: any[], exchangeName: string): number {
+    const exchange = this.exchangeManager.getExchange(exchangeName);
+    const feePerTrade = exchange.getTradingFee();
+    return transactions.length * feePerTrade;
+  }
+
+  private validateOpportunity(opportunity: ArbitrageOpportunity): boolean {
+    // Verificar se o lucro esperado é maior que o mínimo
+    if (opportunity.expectedProfit < botConfig.minProfitPercentage) {
+      return false;
+    }
+
+    // Verificar se não está expirada (mais de 5 segundos)
+    if (Date.now() - opportunity.timestamp > 5000) {
+      return false;
+    }
+
+    // Verificar se temos saldo suficiente
+    const balance = this.exchangeManager.getBalance(
+      opportunity.exchanges[0],
+      'USDT'
+    );
+    if (balance < opportunity.requiredBalance) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private async executeArbitrage(opportunity: ArbitrageOpportunity): Promise<void> {
+    const sessionId = Date.now().toString();
+    this.logger.info(`Iniciando execução de arbitragem (${sessionId})`);
+
+    try {
+      // Validar novamente antes de executar
+      if (!this.validateOpportunity(opportunity)) {
+        throw new Error('Oportunidade não é mais válida');
+      }
+
+      // Executar trades em sequência
+      const exchange = this.exchangeManager.getExchange(opportunity.exchanges[0]);
+      const trades = [];
+
+      for (let i = 0; i < opportunity.path.length; i++) {
+        const pair = opportunity.path[i];
+        const trade = await exchange.createOrder(pair, 'market', 'buy', opportunity.requiredBalance);
+        trades.push(trade);
+
+        // Aguardar confirmação
+        await this.waitForTradeConfirmation(exchange, trade.id);
+      }
+
+      // Calcular resultado final
+      const finalBalance = await exchange.fetchBalance();
+      const profit = this.calculateActualProfit(trades);
+
+      // Registrar sucesso
+      await this.alertManager.sendAlert(
+        'info',
+        `Arbitragem concluída com sucesso: ${profit}% de lucro`,
+        { sessionId, trades }
       );
 
-      // Aguardar confirmação da ordem
-      await this.waitForOrderCompletion(result.id, symbol, exchangeId);
-
-      return result;
     } catch (error) {
-      this.logger.error(`Erro ao executar trade ${symbol} em ${exchangeId}:`, error);
-      throw error;
-    }
-  }
-
-  private async rollbackTrades(session: ArbitrageSession): Promise<void> {
-    this.logger.warn(`Iniciando rollback para sessão ${session.id}`);
-    
-    for (const trade of session.trades.reverse()) {
-      try {
-        // Executar ordem inversa para compensar
-        const side = trade.side === 'buy' ? 'sell' : 'buy';
-        await this.exchangeManager.createOrder(
-          trade.exchange,
-          trade.symbol,
-          'market', // Usar market order para garantir execução rápida
-          side,
-          trade.filled
-        );
-      } catch (error) {
-        this.logger.error(`Erro no rollback do trade ${trade.id}:`, error);
-      }
-    }
-  }
-
-  private isStillProfitable(session: ArbitrageSession, opportunity: ArbitrageOpportunity): boolean {
-    const currentProfit = this.calculateCurrentProfit(session);
-    return currentProfit >= opportunity.profit * (1 - this.MAX_SLIPPAGE);
-  }
-
-  private calculateCurrentProfit(session: ArbitrageSession): number {
-    // Implementar cálculo real de lucro baseado nos trades executados
-    return session.trades.reduce((profit, trade) => {
-      return profit + (trade.side === 'buy' ? -trade.cost : trade.cost);
-    }, 0);
-  }
-
-  private async waitForOrderCompletion(
-    orderId: string,
-    symbol: string,
-    exchangeId: string,
-    timeout = 30000
-  ): Promise<void> {
-    const startTime = Date.now();
-    
-    while (Date.now() - startTime < timeout) {
-      const order = await this.exchangeManager.getExchange(exchangeId).fetchOrder(orderId, symbol);
+      // Em caso de erro, tentar reverter trades
+      this.logger.error(`Erro na execução da arbitragem: ${error.message}`);
+      await this.rollbackTrades(opportunity.exchanges[0], sessionId);
       
-      if (order.status === 'closed') {
+      await this.alertManager.sendAlert(
+        'error',
+        `Erro na arbitragem: ${error.message}`,
+        { sessionId }
+      );
+    }
+  }
+
+  private async waitForTradeConfirmation(exchange: any, tradeId: string): Promise<void> {
+    const maxAttempts = 10;
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      const trade = await exchange.fetchOrder(tradeId);
+      if (trade.status === 'closed') {
         return;
       }
-      
-      if (order.status === 'canceled' || order.status === 'expired') {
-        throw new Error(`Ordem ${orderId} não foi completada: ${order.status}`);
-      }
-      
+
       await new Promise(resolve => setTimeout(resolve, 1000));
+      attempts++;
     }
-    
-    throw new Error(`Timeout aguardando conclusão da ordem ${orderId}`);
+
+    throw new Error(`Trade ${tradeId} não confirmado após ${maxAttempts} tentativas`);
   }
 
-  private estimateSlippage(ticker: PriceData): number {
-    if (!ticker.volume) return this.MAX_SLIPPAGE;
-    
-    // Quanto maior o volume, menor o slippage esperado
-    const volumeScore = Math.min(1, ticker.volume / 100000);
-    return this.MAX_SLIPPAGE * (1 - volumeScore);
+  private calculateActualProfit(trades: any[]): number {
+    const initial = trades[0].cost;
+    const final = trades[trades.length - 1].cost;
+    return ((final - initial) / initial) * 100;
   }
 
-  private hasEnoughBalance(balance: any, opportunity: ArbitrageOpportunity): boolean {
-    // Implementar verificação real de saldo considerando as moedas necessárias
-    return true; // Placeholder
-  }
-
-  private determineTradeSide(symbol: string, session: ArbitrageSession): 'buy' | 'sell' {
-    // Implementar lógica real para determinar lado do trade
-    return 'buy'; // Placeholder
-  }
-
-  private calculateTradeAmount(symbol: string, session: ArbitrageSession): number {
-    // Implementar cálculo real do montante do trade
-    return 0; // Placeholder
-  }
-
-  private async calculateOptimalPrice(
-    symbol: string,
-    exchangeId: string,
-    side: 'buy' | 'sell'
-  ): Promise<number> {
-    const orderbook = await this.exchangeManager.fetchOrderBook(exchangeId, symbol);
-    const orders = side === 'buy' ? orderbook.asks : orderbook.bids;
-    
-    // Implementar cálculo real do preço ótimo baseado no order book
-    return orders[0][0]; // Placeholder - usar primeiro preço disponível
+  private async rollbackTrades(exchangeName: string, sessionId: string): Promise<void> {
+    try {
+      const exchange = this.exchangeManager.getExchange(exchangeName);
+      await exchange.cancelAllOrders();
+      
+      this.logger.info(`Trades revertidos para sessão ${sessionId}`);
+    } catch (error) {
+      this.logger.error(`Erro ao reverter trades: ${error.message}`);
+    }
   }
 }
