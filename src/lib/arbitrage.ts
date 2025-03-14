@@ -5,6 +5,7 @@ import { AlertManager } from './alert';
 import { botConfig } from '../config';
 
 interface ArbitrageOpportunity {
+  type: 'simple' | 'triangular';
   exchanges: string[];
   path: string[];
   expectedProfit: number;
@@ -41,17 +42,14 @@ export class ArbitrageExecutor {
     this.isRunning = true;
     this.logger.info('Iniciando sistema de arbitragem');
     
-    // Iniciar loop de execução
     this.executionInterval = setInterval(
       () => this.executeArbitrageLoop(),
-      1000 // Verificar oportunidades a cada segundo
+      1000
     );
   }
 
   public async stop(): Promise<void> {
-    if (!this.isRunning) {
-      return;
-    }
+    if (!this.isRunning) return;
 
     this.isRunning = false;
     if (this.executionInterval) {
@@ -64,16 +62,17 @@ export class ArbitrageExecutor {
 
   private async executeArbitrageLoop(): Promise<void> {
     try {
-      // Buscar oportunidades de arbitragem
-      const opportunities = await this.findArbitrageOpportunities();
+      // Buscar oportunidades de arbitragem simples e triangular
+      const simpleOpportunities = await this.findSimpleArbitrageOpportunities();
+      const triangularOpportunities = await this.findTriangularArbitrageOpportunities();
       
-      // Filtrar e ordenar por maior lucro
-      const validOpportunities = opportunities
+      // Combinar e ordenar todas as oportunidades
+      const allOpportunities = [...simpleOpportunities, ...triangularOpportunities]
         .filter(opp => this.validateOpportunity(opp))
         .sort((a, b) => b.expectedProfit - a.expectedProfit);
 
-      if (validOpportunities.length > 0) {
-        const bestOpportunity = validOpportunities[0];
+      if (allOpportunities.length > 0) {
+        const bestOpportunity = allOpportunities[0];
         await this.executeArbitrage(bestOpportunity);
       }
 
@@ -82,37 +81,87 @@ export class ArbitrageExecutor {
     }
   }
 
-  private async findArbitrageOpportunities(): Promise<ArbitrageOpportunity[]> {
+  private async findSimpleArbitrageOpportunities(): Promise<ArbitrageOpportunity[]> {
+    const opportunities: ArbitrageOpportunity[] = [];
+    const exchanges = this.exchangeManager.getExchanges();
+    const commonPairs = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT'];
+
+    for (const pair of commonPairs) {
+      // Obter preços de todos os exchanges
+      const prices = await Promise.all(
+        exchanges.map(async exchange => {
+          try {
+            const ticker = await exchange.fetchTicker(pair);
+            return {
+              exchange: exchange.name,
+              ask: ticker.ask,
+              bid: ticker.bid
+            };
+          } catch (error) {
+            return null;
+          }
+        })
+      );
+
+      // Filtrar exchanges com erro
+      const validPrices = prices.filter(p => p !== null);
+
+      // Encontrar melhor compra e venda
+      const bestBuy = validPrices.reduce((best, current) => 
+        current.ask < best.ask ? current : best
+      , validPrices[0]);
+
+      const bestSell = validPrices.reduce((best, current) =>
+        current.bid > best.bid ? current : best
+      , validPrices[0]);
+
+      // Calcular lucro potencial
+      if (bestBuy && bestSell && bestBuy.exchange !== bestSell.exchange) {
+        const profit = ((bestSell.bid - bestBuy.ask) / bestBuy.ask) * 100;
+        
+        if (profit > botConfig.minProfitPercentage) {
+          opportunities.push({
+            type: 'simple',
+            exchanges: [bestBuy.exchange, bestSell.exchange],
+            path: [pair, pair],
+            expectedProfit: profit,
+            requiredBalance: botConfig.maxTradeAmount,
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
+
+    return opportunities;
+  }
+
+  private async findTriangularArbitrageOpportunities(): Promise<ArbitrageOpportunity[]> {
     const opportunities: ArbitrageOpportunity[] = [];
     const exchanges = this.exchangeManager.getExchanges();
     
-    // Lista de pares comuns para verificar
-    const commonPairs = [
+    const triangularPairs = [
       ['BTC/USDT', 'ETH/BTC', 'ETH/USDT'],
       ['BTC/USDT', 'BNB/BTC', 'BNB/USDT'],
       ['ETH/USDT', 'BNB/ETH', 'BNB/USDT']
     ];
 
-    for (const pairs of commonPairs) {
+    for (const pairs of triangularPairs) {
       for (const exchange of exchanges) {
         try {
-          // Verificar se o exchange suporta todos os pares
           const supported = pairs.every(pair => exchange.hasPair(pair));
           if (!supported) continue;
 
-          // Buscar order books
           const orderBooks = await Promise.all(
             pairs.map(pair => exchange.fetchOrderBook(pair))
           );
 
-          // Calcular oportunidade
           const opportunity = this.calculateTriangularArbitrage(
             exchange.name,
             pairs,
             orderBooks
           );
 
-          if (opportunity && opportunity.expectedProfit > botConfig.minProfitPercentage) {
+          if (opportunity) {
             opportunities.push(opportunity);
           }
 
@@ -131,34 +180,28 @@ export class ArbitrageExecutor {
     orderBooks: any[]
   ): ArbitrageOpportunity | null {
     try {
-      // Simulação de trades para calcular lucro potencial
       let initialAmount = botConfig.maxTradeAmount;
       let currentAmount = initialAmount;
 
       // Primeira trade
-      const firstBook = orderBooks[0];
-      const firstRate = firstBook.asks[0][0];
+      const firstRate = orderBooks[0].asks[0][0];
       currentAmount = currentAmount / firstRate;
 
       // Segunda trade
-      const secondBook = orderBooks[1];
-      const secondRate = secondBook.asks[0][0];
+      const secondRate = orderBooks[1].asks[0][0];
       currentAmount = currentAmount / secondRate;
 
-      // Terceira trade (fechamento)
-      const thirdBook = orderBooks[2];
-      const thirdRate = thirdBook.bids[0][0];
+      // Terceira trade
+      const thirdRate = orderBooks[2].bids[0][0];
       currentAmount = currentAmount * thirdRate;
 
-      // Calcular lucro
       const profit = ((currentAmount - initialAmount) / initialAmount) * 100;
-
-      // Considerar taxas
-      const totalFees = this.calculateTotalFees(exchangeName);
-      const netProfit = profit - totalFees;
+      const fees = this.calculateTotalFees(exchangeName);
+      const netProfit = profit - fees;
 
       if (netProfit > botConfig.minProfitPercentage) {
         return {
+          type: 'triangular',
           exchanges: [exchangeName],
           path: pairs,
           expectedProfit: netProfit,
@@ -170,7 +213,7 @@ export class ArbitrageExecutor {
       return null;
 
     } catch (error) {
-      this.logger.error(`Erro ao calcular arbitragem: ${error.message}`);
+      this.logger.error(`Erro ao calcular arbitragem triangular: ${error.message}`);
       return null;
     }
   }
@@ -182,17 +225,14 @@ export class ArbitrageExecutor {
   }
 
   private validateOpportunity(opportunity: ArbitrageOpportunity): boolean {
-    // Verificar se o lucro esperado é maior que o mínimo
     if (opportunity.expectedProfit < botConfig.minProfitPercentage) {
       return false;
     }
 
-    // Verificar se não está expirada (mais de 5 segundos)
     if (Date.now() - opportunity.timestamp > 5000) {
       return false;
     }
 
-    // Verificar se temos saldo suficiente
     const balance = this.exchangeManager.getBalance(
       opportunity.exchanges[0],
       'USDT'
@@ -206,32 +246,18 @@ export class ArbitrageExecutor {
 
   private async executeArbitrage(opportunity: ArbitrageOpportunity): Promise<void> {
     const sessionId = Date.now().toString();
-    this.logger.info(`Iniciando execução de arbitragem (${sessionId})`);
+    this.logger.info(`Iniciando execução de arbitragem ${opportunity.type} (${sessionId})`);
 
     try {
-      // Validar novamente antes de executar
       if (!this.validateOpportunity(opportunity)) {
         throw new Error('Oportunidade não é mais válida');
       }
 
-      // Executar trades em sequência
-      const exchange = this.exchangeManager.getExchange(opportunity.exchanges[0]);
-      const trades = [];
-
-      for (let i = 0; i < opportunity.path.length; i++) {
-        const pair = opportunity.path[i];
-        const trade = await exchange.createOrder(pair, 'market', 'buy', opportunity.requiredBalance);
-        trades.push(trade);
-
-        // Aguardar confirmação
-        await this.waitForTradeConfirmation(exchange, trade.id);
+      if (opportunity.type === 'simple') {
+        await this.executeSimpleArbitrage(opportunity);
+      } else {
+        await this.executeTriangularArbitrage(opportunity);
       }
-
-      // Calcular resultado final
-      const finalBalance = await exchange.fetchBalance();
-      const profit = this.calculateActualProfit(trades);
-
-      this.logger.info(`Arbitragem concluída com sucesso: ${profit}% de lucro`);
 
     } catch (error) {
       this.logger.error(`Erro na execução da arbitragem: ${error.message}`);
@@ -239,12 +265,59 @@ export class ArbitrageExecutor {
     }
   }
 
-  private async waitForTradeConfirmation(exchange: any, tradeId: string): Promise<void> {
+  private async executeSimpleArbitrage(opportunity: ArbitrageOpportunity): Promise<void> {
+    const [buyExchange, sellExchange] = opportunity.exchanges;
+    const pair = opportunity.path[0];
+    const amount = opportunity.requiredBalance;
+
+    // Comprar no exchange mais barato
+    const buyOrder = await this.exchangeManager
+      .getExchange(buyExchange)
+      .createOrder(pair, 'market', 'buy', amount);
+    
+    await this.waitForTradeConfirmation(buyExchange, buyOrder.id);
+
+    // Vender no exchange mais caro
+    const sellOrder = await this.exchangeManager
+      .getExchange(sellExchange)
+      .createOrder(pair, 'market', 'sell', amount);
+    
+    await this.waitForTradeConfirmation(sellExchange, sellOrder.id);
+
+    const profit = this.calculateActualProfit([buyOrder, sellOrder]);
+    this.logger.info(`Arbitragem simples concluída com sucesso: ${profit}% de lucro`);
+  }
+
+  private async executeTriangularArbitrage(opportunity: ArbitrageOpportunity): Promise<void> {
+    const exchange = this.exchangeManager.getExchange(opportunity.exchanges[0]);
+    const trades = [];
+
+    for (let i = 0; i < opportunity.path.length; i++) {
+      const pair = opportunity.path[i];
+      const trade = await exchange.createOrder(
+        pair,
+        'market',
+        'buy',
+        opportunity.requiredBalance
+      );
+      trades.push(trade);
+
+      await this.waitForTradeConfirmation(exchange.name, trade.id);
+    }
+
+    const profit = this.calculateActualProfit(trades);
+    this.logger.info(`Arbitragem triangular concluída com sucesso: ${profit}% de lucro`);
+  }
+
+  private async waitForTradeConfirmation(exchangeName: string, tradeId: string): Promise<void> {
     const maxAttempts = 10;
     let attempts = 0;
 
     while (attempts < maxAttempts) {
-      const trade = await exchange.fetchOrder(tradeId);
+      const trade = await this.exchangeManager
+        .getExchange(exchangeName)
+        .fetchOrder(tradeId);
+
       if (trade.status === 'closed') {
         return;
       }
