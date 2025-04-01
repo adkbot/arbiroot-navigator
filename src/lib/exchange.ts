@@ -1,9 +1,10 @@
+
 // Basic exchange utilities to fix import errors
 import { ethers } from 'ethers';
 import { PriceData, LiquidityInfo } from './types';
 import axios from 'axios';
 
-// Definindo o tipo do window com ethereum
+// Defining the type of window with ethereum
 declare global {
   interface Window {
     ethereum?: any;
@@ -19,6 +20,12 @@ export interface TradeResult {
   fee: number;
 }
 
+// Helper function to safely access environment variables in browser context
+const getEnvVar = (name: string, defaultValue: string = ''): string => {
+  // In browser context, import.meta.env is available instead of process.env
+  return (import.meta.env && import.meta.env[name]) || defaultValue;
+};
+
 export class ExchangeManager {
   private exchanges: Record<string, any>;
   private apiKeys: Record<string, { apiKey: string, secret: string, passphrase?: string }>;
@@ -28,17 +35,17 @@ export class ExchangeManager {
     this.exchanges = {};
     this.apiKeys = {
       binance: {
-        apiKey: process.env.BINANCE_API_KEY || '',
-        secret: process.env.BINANCE_SECRET || ''
+        apiKey: getEnvVar('VITE_BINANCE_API_KEY', ''),
+        secret: getEnvVar('VITE_BINANCE_SECRET', '')
       },
       kucoin: {
-        apiKey: process.env.KUCOIN_API_KEY || '',
-        secret: process.env.KUCOIN_SECRET || '',
-        passphrase: process.env.KUCOIN_PASSPHRASE || ''
+        apiKey: getEnvVar('VITE_KUCOIN_API_KEY', ''),
+        secret: getEnvVar('VITE_KUCOIN_SECRET', ''),
+        passphrase: getEnvVar('VITE_KUCOIN_PASSPHRASE', '')
       },
       bybit: {
-        apiKey: process.env.BYBIT_API_KEY || '',
-        secret: process.env.BYBIT_SECRET || ''
+        apiKey: getEnvVar('VITE_BYBIT_API_KEY', ''),
+        secret: getEnvVar('VITE_BYBIT_SECRET', '')
       }
     };
     
