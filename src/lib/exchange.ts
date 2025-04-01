@@ -1,9 +1,11 @@
-
 // Exchange utilities using CCXT for real-time data
 import { ethers } from 'ethers';
 import { PriceData, LiquidityInfo } from './types';
 import axios from 'axios';
-import * as ccxt from 'ccxt';
+
+// Import CCXT properly for browser environment
+// Import specific exchanges instead of the whole module
+import { binance, coinbase, kraken, kucoin, huobi, okx } from 'ccxt';
 
 // Defining the type of window with ethereum
 declare global {
@@ -28,7 +30,7 @@ const getEnvVar = (name: string, defaultValue: string = ''): string => {
 };
 
 export class ExchangeManager {
-  private exchanges: Record<string, ccxt.Exchange>;
+  private exchanges: Record<string, any>;
   private apiKeys: Record<string, { apiKey: string, secret: string, passphrase?: string }>;
   
   constructor() {
@@ -56,31 +58,34 @@ export class ExchangeManager {
   
   private initializeExchanges() {
     try {
-      // Initialize supported exchanges with CCXT
-      const supportedExchanges = ['binance', 'coinbase', 'kraken', 'kucoin', 'huobi', 'okx'];
+      // Initialize supported exchanges with CCXT - using specific exchange classes instead of dynamic access
+      const exchanges: Record<string, any> = {
+        binance,
+        coinbase,
+        kraken,
+        kucoin,
+        huobi,
+        okx
+      };
       
-      for (const exchangeId of supportedExchanges) {
-        if (ccxt[exchangeId as keyof typeof ccxt]) {
-          const exchangeClass = ccxt[exchangeId as keyof typeof ccxt];
+      for (const [exchangeId, ExchangeClass] of Object.entries(exchanges)) {
+        // Configure with API keys if available
+        const config: any = { 
+          enableRateLimit: true,
+          timeout: 30000
+        };
+        
+        if (this.apiKeys[exchangeId]) {
+          config.apiKey = this.apiKeys[exchangeId].apiKey;
+          config.secret = this.apiKeys[exchangeId].secret;
           
-          // Configure with API keys if available
-          const config: any = { 
-            enableRateLimit: true,
-            timeout: 30000
-          };
-          
-          if (this.apiKeys[exchangeId]) {
-            config.apiKey = this.apiKeys[exchangeId].apiKey;
-            config.secret = this.apiKeys[exchangeId].secret;
-            
-            if (this.apiKeys[exchangeId].passphrase) {
-              config.password = this.apiKeys[exchangeId].passphrase;
-            }
+          if (this.apiKeys[exchangeId].passphrase) {
+            config.password = this.apiKeys[exchangeId].passphrase;
           }
-          
-          this.exchanges[exchangeId] = new exchangeClass(config);
-          console.log(`Inicializada exchange ${exchangeId} com CCXT`);
         }
+        
+        this.exchanges[exchangeId] = new ExchangeClass(config);
+        console.log(`Inicializada exchange ${exchangeId} com CCXT`);
       }
       
       console.log("Exchanges inicializadas com sucesso:", Object.keys(this.exchanges));
@@ -194,7 +199,7 @@ export class ExchangeManager {
         exchange,
         price: ticker.last || 0,
         timestamp: ticker.timestamp || Date.now(),
-        volume: ticker.volume || ticker.quoteVolume || 0
+        volume: ticker.baseVolume || ticker.quoteVolume || 0
       };
     } catch (error) {
       console.error(`Erro ao buscar ticker para ${symbol} em ${exchange}:`, error);

@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     cors: true,
+    hmr: {
+      overlay: false, // Disable HMR overlay due to CCXT import issues
+    },
   },
   plugins: [
     react(),
@@ -22,7 +25,12 @@ export default defineConfig(({ mode }) => ({
     },
   },
   optimizeDeps: {
-    exclude: ['ccxt', 'http-proxy-agent', 'https-proxy-agent'],
+    esbuildOptions: {
+      define: {
+        global: 'globalThis',
+      },
+    },
+    exclude: ['ccxt', 'http-proxy-agent', 'https-proxy-agent', 'socks-proxy-agent'],
   },
   build: {
     commonjsOptions: {

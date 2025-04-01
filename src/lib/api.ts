@@ -1,11 +1,12 @@
-
 // Import interfaces and type definitions
 import { ethers } from 'ethers';
 import { PriceData, ExchangeInfo } from './types';
 import axios from 'axios';
-import * as ccxt from 'ccxt';
 
-// Apenas as exchanges que têm APIs configuradas e suportadas pelo CCXT
+// Import specific exchanges instead of the whole module
+import { binance, coinbase, kraken, kucoin, huobi, okx } from 'ccxt';
+
+// Exchanges with APIs configured and supported by CCXT
 export const exchanges: ExchangeInfo[] = [
   { id: 'binance', name: 'Binance', logo: 'https://cryptologos.cc/logos/binance-coin-bnb-logo.png', active: true },
   { id: 'coinbase', name: 'Coinbase', logo: 'https://cryptologos.cc/logos/coinbase-coin-logo.png', active: true },
@@ -15,22 +16,32 @@ export const exchanges: ExchangeInfo[] = [
   { id: 'okx', name: 'OKX', logo: 'https://cryptologos.cc/logos/okb-okb-logo.png', active: true },
 ];
 
-// Pares de negociação populares (dados reais)
+// Popular trading pairs (real data)
 export const tradingPairs = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'SOL/USDT',
   'XRP/USDT', 'DOT/USDT', 'DOGE/USDT', 'AVAX/USDT', 'MATIC/USDT',
   'LINK/USDT', 'UNI/USDT', 'ATOM/USDT', 'LTC/USDT', 'BCH/USDT',
 ];
 
-// Instâncias CCXT para cada exchange
-const exchangeInstances: Record<string, ccxt.Exchange> = {};
+// CCXT exchange instances
+const exchangeInstances: Record<string, any> = {};
 
-// Inicializar instâncias CCXT
+// Map of exchange constructors
+const exchangeClasses: Record<string, any> = {
+  binance,
+  coinbase,
+  kraken,
+  kucoin,
+  huobi,
+  okx
+};
+
+// Initialize CCXT exchanges
 function initializeCCXTExchanges() {
   try {
     exchanges.forEach(exchange => {
-      if (ccxt[exchange.id as keyof typeof ccxt]) {
-        exchangeInstances[exchange.id] = new (ccxt[exchange.id as keyof typeof ccxt])({
+      if (exchangeClasses[exchange.id]) {
+        exchangeInstances[exchange.id] = new exchangeClasses[exchange.id]({
           enableRateLimit: true,
           timeout: 30000,
         });
@@ -44,7 +55,7 @@ function initializeCCXTExchanges() {
   }
 }
 
-// Inicializar as instâncias no carregamento
+// Initialize instances on load
 initializeCCXTExchanges();
 
 // Fetch price data using CCXT for real-time data

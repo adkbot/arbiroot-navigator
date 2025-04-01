@@ -1,14 +1,29 @@
 
 import { Badge } from "@/components/ui/badge";
-import { Loader2, TrendingUp, PauseCircle, Activity, BarChart3, CheckCircle2, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button"; 
+import { Loader2, TrendingUp, PauseCircle, Activity, BarChart3, CheckCircle2, Clock, PlayCircle, StopCircle } from "lucide-react";
 
 interface BotStatusProps {
   botStatus: 'idle' | 'scanning' | 'trading' | 'waiting' | 'paused';
   totalArbitrages: number;
   lastScanTime?: number | null;
+  onStartBot?: () => void;
+  onStopBot?: () => void;
+  onPauseBot?: () => void;
+  onResumeBot?: () => void;
+  isActivating?: boolean;
 }
 
-const BotStatus = ({ botStatus, totalArbitrages, lastScanTime }: BotStatusProps) => {
+const BotStatus = ({ 
+  botStatus, 
+  totalArbitrages, 
+  lastScanTime, 
+  onStartBot,
+  onStopBot,
+  onPauseBot,
+  onResumeBot,
+  isActivating = false
+}: BotStatusProps) => {
   // Calculate time since last scan
   const getTimeSinceLastScan = () => {
     if (!lastScanTime) return null;
@@ -83,6 +98,59 @@ const BotStatus = ({ botStatus, totalArbitrages, lastScanTime }: BotStatusProps)
           </span>
         </div>
       )}
+      
+      {/* Bot control buttons */}
+      <div className="pt-2 flex flex-wrap gap-2 mt-2">
+        {botStatus === 'idle' && (
+          <Button 
+            size="sm" 
+            className="w-full bg-green-600 hover:bg-green-700"
+            onClick={onStartBot}
+            disabled={isActivating}
+          >
+            {isActivating ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Inicializando...</>
+            ) : (
+              <><PlayCircle className="h-4 w-4 mr-2" /> Iniciar Bot</>
+            )}
+          </Button>
+        )}
+        
+        {botStatus !== 'idle' && !botStatus.includes('paused') && (
+          <Button 
+            size="sm" 
+            variant="outline"
+            className="flex-1"
+            onClick={onPauseBot}
+          >
+            <PauseCircle className="h-4 w-4 mr-1" />
+            Pausar
+          </Button>
+        )}
+        
+        {botStatus === 'paused' && (
+          <Button 
+            size="sm" 
+            className="flex-1 bg-blue-600 hover:bg-blue-700"
+            onClick={onResumeBot}
+          >
+            <PlayCircle className="h-4 w-4 mr-1" />
+            Continuar
+          </Button>
+        )}
+        
+        {botStatus !== 'idle' && (
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+            onClick={onStopBot}
+          >
+            <StopCircle className="h-4 w-4 mr-1" />
+            Parar
+          </Button>
+        )}
+      </div>
     </div>
   );
 };
