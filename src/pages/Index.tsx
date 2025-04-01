@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import { fetchPrices, exchanges, tradingPairs } from '@/lib/api';
-import { findTriangularArbitrageOpportunities } from '@/lib/arbitrage';
+import { findArbitrageOpportunities } from '@/lib/arbitrage';
 import { PriceData, ArbitrageOpportunity } from '@/lib/types';
 import Header from '@/components/Header';
 import PriceCard from '@/components/PriceCard';
@@ -33,11 +32,9 @@ const Index = () => {
   const [refreshInterval, setRefreshInterval] = useState(15000); // 15 seconds
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  // Initial load
   useEffect(() => {
     fetchPriceData();
     
-    // Auto-refresh timer
     let intervalId: number | undefined;
     
     if (autoRefresh) {
@@ -51,14 +48,12 @@ const Index = () => {
     };
   }, [selectedExchanges, refreshInterval, autoRefresh]);
   
-  // Recalculate opportunities when prices or settings change
   useEffect(() => {
     calculateArbitrageOpportunities();
   }, [prices, minProfitPercentage, maxPathLength, selectedExchanges]);
 
   const fetchPriceData = async () => {
     try {
-      // Save current prices as previous prices for animation
       const priceMap: Record<string, number> = {};
       prices.forEach(price => {
         const key = `${price.exchange}-${price.symbol}`;
@@ -66,7 +61,6 @@ const Index = () => {
       });
       setPreviousPrices(priceMap);
       
-      // Fetch new prices
       const newPrices = await fetchPrices();
       setPrices(newPrices);
       
@@ -93,9 +87,8 @@ const Index = () => {
     setLoadingOpportunities(true);
     
     try {
-      const newOpportunities = findTriangularArbitrageOpportunities(prices, {
+      const newOpportunities = findArbitrageOpportunities(prices, {
         minProfitPercentage,
-        maxPathLength,
         includeExchanges: selectedExchanges,
       });
       
