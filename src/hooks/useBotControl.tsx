@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from "@/components/ui/use-toast";
 import { useWallet } from '@/contexts/WalletContext';
-import { findTriangularArbitrageOpportunities } from '@/lib/arbitrage';
+import { findArbitrageOpportunities } from '@/lib/arbitrage';
 import { fetchPrices } from '@/lib/api';
 import { PriceData, ArbitrageOpportunity } from '@/lib/types';
 import { ExchangeManager } from '@/lib/exchange';
@@ -117,7 +117,6 @@ export function useBotControl() {
       
       if (!liquidezSuficiente) {
         toast({
-          variant: "warning",
           title: "Liquidez insuficiente",
           description: "Não há liquidez suficiente para executar esta arbitragem.",
         });
@@ -125,66 +124,34 @@ export function useBotControl() {
         return false;
       }
       
-      // Executar as ordens necessárias para realizar a arbitragem
+      // Executar as ordens necessárias para realizar a arbitragem simples
       const trades = [];
       
-      if (opportunity.type === 'simple') {
-        // Arbitragem simples (entre duas exchanges)
-        const [exchange1, exchange2] = opportunity.exchanges;
-        const symbol = opportunity.path[0];
-        
-        console.log(`Executando arbitragem simples entre ${exchange1} e ${exchange2} para o símbolo ${symbol}`);
-        
-        // Comprar na exchange com preço mais baixo
-        const buy = await exchangeManager.createOrder(
-          exchange1, 
-          symbol, 
-          'limit', 
-          'buy', 
-          opportunity.minimumRequired / opportunity.profitPercentage
-        );
-        
-        // Vender na exchange com preço mais alto
-        const sell = await exchangeManager.createOrder(
-          exchange2,
-          symbol,
-          'limit',
-          'sell',
-          opportunity.minimumRequired / opportunity.profitPercentage
-        );
-        
-        trades.push(buy, sell);
-      } else if (opportunity.type === 'triangular') {
-        // Arbitragem triangular (dentro da mesma exchange)
-        const exchange = opportunity.exchanges[0];
-        
-        console.log(`Executando arbitragem triangular em ${exchange} com caminho: ${opportunity.path.join(' → ')}`);
-        
-        // Executar cada etapa do ciclo triangular
-        let amount = opportunity.minimumRequired;
-        
-        for (let i = 0; i < opportunity.path.length; i++) {
-          const currentSymbol = opportunity.path[i];
-          const nextSymbol = opportunity.path[(i + 1) % opportunity.path.length];
-          
-          // Determinar se é uma compra ou venda com base na direção
-          const side = i % 2 === 0 ? 'buy' : 'sell';
-          
-          console.log(`Etapa ${i+1}: ${side} ${currentSymbol}/${nextSymbol}`);
-          
-          const trade = await exchangeManager.createOrder(
-            exchange,
-            `${currentSymbol}/${nextSymbol}`,
-            'limit',
-            side,
-            amount
-          );
-          
-          // Ajustar a quantidade para a próxima operação
-          amount = trade.amount * trade.price * (1 - trade.fee / 100);
-          trades.push(trade);
-        }
-      }
+      // Arbitragem simples (entre duas exchanges)
+      const [exchange1, exchange2] = opportunity.exchanges;
+      const symbol = opportunity.path[0];
+      
+      console.log(`Executando arbitragem simples entre ${exchange1} e ${exchange2} para o símbolo ${symbol}`);
+      
+      // Comprar na exchange com preço mais baixo
+      const buy = await exchangeManager.createOrder(
+        exchange1, 
+        symbol, 
+        'limit', 
+        'buy', 
+        opportunity.minimumRequired / opportunity.profitPercentage
+      );
+      
+      // Vender na exchange com preço mais alto
+      const sell = await exchangeManager.createOrder(
+        exchange2,
+        symbol,
+        'limit',
+        'sell',
+        opportunity.minimumRequired / opportunity.profitPercentage
+      );
+      
+      trades.push(buy, sell);
       
       if (trades.length === 0) {
         console.error("Nenhuma ordem foi criada para a arbitragem");
@@ -253,11 +220,10 @@ export function useBotControl() {
       setPrices(priceData);
       
       if (priceData.length > 0) {
-        // Calcular oportunidades reais
-        const ops = findTriangularArbitrageOpportunities(priceData, {
+        // Calcular oportunidades de arbitragem simples
+        const ops = findArbitrageOpportunities(priceData, {
           minProfitPercentage: 0.5,
-          maxPathLength: 3,
-          includeExchanges: ['binance', 'coinbase', 'kraken']
+          includeExchanges: ['binance', 'coinbase', 'kraken', 'huobi', 'bitfinex', 'kucoin', 'okx', 'gate']
         });
         
         setOpportunities(ops);
@@ -390,4 +356,3 @@ export function useBotControl() {
     stopBot
   };
 }
-

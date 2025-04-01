@@ -1,148 +1,206 @@
-
 // Import interfaces and type definitions
 import { ethers } from 'ethers';
 import { PriceData, ExchangeInfo } from './types';
 import axios from 'axios';
 
-// Dados reais das exchanges
+// Exchange data with APIs provided by user
 export const exchanges: ExchangeInfo[] = [
   { id: 'binance', name: 'Binance', logo: 'https://cryptologos.cc/logos/binance-coin-bnb-logo.png', active: true },
   { id: 'coinbase', name: 'Coinbase', logo: 'https://cryptologos.cc/logos/coinbase-coin-logo.png', active: true },
   { id: 'kraken', name: 'Kraken', logo: 'https://cryptologos.cc/logos/kraken-logo.png', active: true },
   { id: 'kucoin', name: 'KuCoin', logo: 'https://cryptologos.cc/logos/kucoin-token-kcs-logo.png', active: true },
-  // Removed ftx as it doesn't exist anymore
   { id: 'huobi', name: 'Huobi', logo: 'https://cryptologos.cc/logos/huobi-token-ht-logo.png', active: true },
   { id: 'bitfinex', name: 'Bitfinex', logo: 'https://cryptologos.cc/logos/bitfinex-logo.png', active: true },
-  { id: 'bybit', name: 'Bybit', logo: 'https://cryptologos.cc/logos/bybit-logo.png', active: true },
+  { id: 'bitstamp', name: 'Bitstamp', logo: 'https://cryptologos.cc/logos/bitstamp-logo.png', active: true },
   { id: 'okx', name: 'OKX', logo: 'https://cryptologos.cc/logos/okb-okb-logo.png', active: true },
   { id: 'gate', name: 'Gate.io', logo: 'https://cryptologos.cc/logos/gate-logo.png', active: true },
+  { id: 'bittrex', name: 'Bittrex', logo: 'https://cryptologos.cc/logos/bittrex-logo.png', active: true },
 ];
+
+// APIs endpoints provided by user
+const exchangeApis = {
+  binance: {
+    url: 'https://api.binance.com/api/v3/ticker/price?symbol={}',
+    private: true
+  },
+  coinbase: {
+    url: 'https://api.pro.coinbase.com/products/{}/ticker',
+    private: false
+  },
+  kraken: {
+    url: 'https://api.kraken.com/0/public/Ticker?pair={}',
+    private: false
+  },
+  bitfinex: {
+    url: 'https://api-pub.bitfinex.com/v2/ticker/t{}',
+    private: false
+  },
+  huobi: {
+    url: 'https://api.huobi.pro/market/detail/merged?symbol={}',
+    private: false
+  },
+  bitstamp: {
+    url: 'https://www.bitstamp.net/api/v2/ticker/{}',
+    private: false
+  },
+  kucoin: {
+    url: 'https://api.kucoin.com/api/v1/market/orderbook/level1?symbol={}',
+    private: false
+  },
+  okx: {
+    url: 'https://www.okx.com/api/v5/market/ticker?instId={}',
+    private: false
+  },
+  gate: {
+    url: 'https://api.gateio.ws/api/v4/spot/tickers?currency_pair={}',
+    private: false
+  },
+  bittrex: {
+    url: 'https://api.bittrex.com/v3/markets/{}/ticker',
+    private: false
+  }
+};
 
 // Pares de negociação populares (dados reais)
 export const tradingPairs = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'SOL/USDT',
   'XRP/USDT', 'DOT/USDT', 'DOGE/USDT', 'AVAX/USDT', 'MATIC/USDT',
   'LINK/USDT', 'UNI/USDT', 'ATOM/USDT', 'LTC/USDT', 'BCH/USDT',
-  'ETH/BTC', 'BNB/BTC', 'SOL/BTC', 'ADA/BTC', 'XRP/BTC',
 ];
 
 // Função auxiliar para adaptar o formato do par conforme cada exchange
 function convertSymbolForExchange(exchangeId: string, pair: string): string {
+  const normalizedPair = pair.replace('/', '');
+  
   switch (exchangeId) {
     case 'kraken':
       return pair.replace('BTC', 'XBT').replace('/', '');
     case 'coinbase':
       return pair.replace('/', '-');
+    case 'bitfinex':
+      return normalizedPair;
+    case 'huobi':
+      return normalizedPair.toLowerCase();
+    case 'kucoin':
+      return pair.replace('/', '-');
+    case 'gate':
+      return pair;  // Gate.io uses original format with "/"
     default:
-      return pair.replace('/', '');
+      return normalizedPair;
   }
 }
 
 // Fetch price data from real public APIs
 export async function fetchPrices(): Promise<PriceData[]> {
-  console.log("Fetching real price data...");
+  console.log("Fetching real price data using public APIs...");
   const prices: PriceData[] = [];
   const now = Date.now();
   
+  // Array of promises to fetch data from multiple exchanges in parallel
+  const fetchPromises = exchanges
+    .filter(ex => ex.active)
+    .map(async (exchange) => {
+      try {
+        const exchangeId = exchange.id;
+        console.log(`Fetching prices from ${exchange.name}...`);
+        
+        // Get appropriate API config
+        const apiConfig = exchangeApis[exchangeId as keyof typeof exchangeApis];
+        if (!apiConfig) {
+          console.warn(`No API configuration for ${exchangeId}`);
+          return [];
+        }
+        
+        const exchangePrices: PriceData[] = [];
+        
+        // For each trading pair, fetch the price
+        for (const pair of tradingPairs) {
+          try {
+            const symbol = convertSymbolForExchange(exchangeId, pair);
+            const apiUrl = apiConfig.url.replace('{}', symbol);
+            
+            const response = await axios.get(apiUrl);
+            let price = 0;
+            let volume = 0;
+            
+            // Extract price based on exchange-specific response format
+            switch (exchangeId) {
+              case 'binance':
+                price = parseFloat(response.data.price);
+                break;
+              case 'coinbase':
+                price = parseFloat(response.data.price);
+                volume = parseFloat(response.data.volume);
+                break;
+              case 'kraken':
+                // Extract first result pair
+                const firstPair = Object.keys(response.data.result)[0];
+                price = parseFloat(response.data.result[firstPair].c[0]);
+                volume = parseFloat(response.data.result[firstPair].v[1]);
+                break;
+              case 'bitfinex':
+                price = parseFloat(response.data[6]); // Last price
+                volume = parseFloat(response.data[7]); // Volume
+                break;
+              case 'huobi':
+                price = parseFloat(response.data.tick.close);
+                volume = parseFloat(response.data.tick.amount);
+                break;
+              case 'bitstamp':
+                price = parseFloat(response.data.last);
+                volume = parseFloat(response.data.volume);
+                break;
+              case 'kucoin':
+                price = parseFloat(response.data.data.price);
+                break;
+              case 'okx':
+                price = parseFloat(response.data.data[0].last);
+                volume = parseFloat(response.data.data[0].vol24h);
+                break;
+              case 'gate':
+                const ticker = response.data.find((t: any) => t.currency_pair === symbol);
+                price = ticker ? parseFloat(ticker.last) : 0;
+                volume = ticker ? parseFloat(ticker.base_volume) : 0;
+                break;
+              case 'bittrex':
+                price = parseFloat(response.data.lastTradeRate);
+                volume = parseFloat(response.data.volume);
+                break;
+            }
+            
+            if (price > 0) {
+              exchangePrices.push({
+                symbol: pair,
+                exchange: exchangeId,
+                price,
+                timestamp: now,
+                volume: volume || 0
+              });
+            }
+          } catch (pairError) {
+            console.log(`Error fetching ${pair} from ${exchangeId}: ${pairError}`);
+            // Continue to next pair
+          }
+        }
+        
+        return exchangePrices;
+      } catch (exchangeError) {
+        console.error(`Error fetching data from ${exchange.name}:`, exchangeError);
+        return [];
+      }
+    });
+  
   try {
-    // Use public APIs that don't require authentication
-    const binancePrices = await fetchBinancePrices();
-    prices.push(...binancePrices);
+    // Wait for all exchange data fetches to complete
+    const results = await Promise.all(fetchPromises);
     
-    // Add more exchanges as needed
-    const coinbasePrices = await fetchCoinbasePrices();
-    prices.push(...coinbasePrices);
+    // Flatten array of arrays
+    const allPrices = results.flat();
     
-    return prices;
+    console.log(`Fetched ${allPrices.length} price points from ${exchanges.length} exchanges`);
+    return allPrices;
   } catch (error) {
     console.error("Error fetching price data:", error);
-    return [];
-  }
-}
-
-async function fetchBinancePrices(): Promise<PriceData[]> {
-  try {
-    const response = await axios.get('https://api.binance.com/api/v3/ticker/price');
-    const prices: PriceData[] = [];
-    const now = Date.now();
-    
-    if (response.data && Array.isArray(response.data)) {
-      for (const item of response.data) {
-        // Convert Binance symbol format to our format
-        const symbol = item.symbol.replace('USDT', '/USDT').replace('BTC', '/BTC');
-        
-        if (tradingPairs.includes(symbol)) {
-          prices.push({
-            symbol,
-            price: parseFloat(item.price),
-            exchange: 'binance',
-            timestamp: now,
-            volume: 0 // Binance ticker endpoint doesn't provide volume
-          });
-        }
-      }
-    }
-    
-    // Get 24hr statistics for volume
-    const statsResponse = await axios.get('https://api.binance.com/api/v3/ticker/24hr');
-    if (statsResponse.data && Array.isArray(statsResponse.data)) {
-      for (const stat of statsResponse.data) {
-        const symbol = stat.symbol.replace('USDT', '/USDT').replace('BTC', '/BTC');
-        const existingPriceIndex = prices.findIndex(p => p.symbol === symbol && p.exchange === 'binance');
-        
-        if (existingPriceIndex !== -1) {
-          prices[existingPriceIndex].volume = parseFloat(stat.volume);
-        }
-      }
-    }
-    
-    return prices;
-  } catch (error) {
-    console.error("Error fetching Binance prices:", error);
-    return [];
-  }
-}
-
-async function fetchCoinbasePrices(): Promise<PriceData[]> {
-  const prices: PriceData[] = [];
-  const now = Date.now();
-  
-  try {
-    // Get product list
-    const productsResponse = await axios.get('https://api.exchange.coinbase.com/products');
-    const products = productsResponse.data;
-    
-    if (products && Array.isArray(products)) {
-      const relevantProducts = products.filter(p => {
-        const symbol = `${p.base_currency}/${p.quote_currency}`;
-        return tradingPairs.includes(symbol);
-      });
-      
-      // Fetch prices for each product
-      for (const product of relevantProducts) {
-        try {
-          const tickerResponse = await axios.get(`https://api.exchange.coinbase.com/products/${product.id}/ticker`);
-          const ticker = tickerResponse.data;
-          
-          if (ticker && ticker.price) {
-            const symbol = `${product.base_currency}/${product.quote_currency}`;
-            prices.push({
-              symbol,
-              price: parseFloat(ticker.price),
-              exchange: 'coinbase',
-              timestamp: now,
-              volume: parseFloat(ticker.volume)
-            });
-          }
-        } catch (productError) {
-          console.error(`Error fetching Coinbase price for ${product.id}:`, productError);
-        }
-      }
-    }
-    
-    return prices;
-  } catch (error) {
-    console.error("Error fetching Coinbase prices:", error);
     return [];
   }
 }
@@ -188,14 +246,14 @@ export async function fetchWalletBalances(address: string) {
   }
 }
 
-// --- Exemplo de uso da API 0x para obter cotação de swap (dados reais) ---
+// --- Example of using 0x API for swap quote (real data) ---
 export async function fetchSwapQuote(sellToken: string, buyToken: string, sellAmount: string) {
   try {
     const url = `https://api.0x.org/swap/v1/quote?sellToken=${sellToken}&buyToken=${buyToken}&sellAmount=${sellAmount}`;
     const response = await axios.get(url);
     return response.data;
   } catch (error) {
-    console.error("Erro ao buscar cotação 0x:", error);
+    console.error("Error fetching 0x quote:", error);
     return null;
   }
 }

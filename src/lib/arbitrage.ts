@@ -2,92 +2,70 @@
 import { ExchangeManager, ArbitrageExecutor } from './exchange';
 import { PriceData, ArbitrageOpportunity } from './types';
 
-// Stub implementation until the real implementation is needed
-export function findTriangularArbitrageOpportunities(
+// Find only simple cross-exchange arbitrage opportunities
+export function findArbitrageOpportunities(
   prices: PriceData[], 
   options: { 
-    minProfitPercentage: number, 
-    maxPathLength: number,
+    minProfitPercentage: number,
     includeExchanges: string[]
   }
 ): ArbitrageOpportunity[] {
-  // Simple mock implementation that generates some fake opportunities
+  console.log(`Buscando oportunidades de arbitragem simples com lucro mínimo de ${options.minProfitPercentage}%...`);
   const opportunities: ArbitrageOpportunity[] = [];
   
-  // Generate a few mock opportunities based on actual prices
-  const exchangeIds = [...new Set(prices.map(p => p.exchange))];
+  // Get list of symbols and exchanges from price data
   const symbols = [...new Set(prices.map(p => p.symbol))];
   
   // Filter exchanges by the ones requested
-  const filteredExchanges = exchangeIds.filter(ex => 
+  const exchanges = [...new Set(prices.map(p => p.exchange))].filter(ex => 
     options.includeExchanges.includes(ex)
   );
   
-  // Create a few mock triangular opportunities
-  for (let i = 0; i < Math.min(5, filteredExchanges.length); i++) {
-    const exchange = filteredExchanges[i];
-    const profitPercentage = options.minProfitPercentage + (Math.random() * 2);
+  console.log(`Analisando ${symbols.length} símbolos em ${exchanges.length} exchanges...`);
+  
+  // For each symbol, find the exchange with lowest and highest price
+  for (const symbol of symbols) {
+    const pricesForSymbol = prices.filter(p => 
+      p.symbol === symbol && 
+      exchanges.includes(p.exchange)
+    );
     
-    // Only create opportunities that meet the minimum profit requirement
-    if (profitPercentage >= options.minProfitPercentage) {
-      // Generate a random triangular path
-      const availableSymbols = symbols.filter(s => 
-        prices.some(p => p.exchange === exchange && p.symbol === s)
-      );
+    if (pricesForSymbol.length < 2) continue; // Need at least 2 exchanges to compare
+    
+    // Find lowest and highest prices
+    let lowestPrice = { exchange: '', price: Number.MAX_VALUE };
+    let highestPrice = { exchange: '', price: 0 };
+    
+    for (const priceData of pricesForSymbol) {
+      if (priceData.price < lowestPrice.price) {
+        lowestPrice = { exchange: priceData.exchange, price: priceData.price };
+      }
       
-      if (availableSymbols.length >= 3) {
-        const path = [];
-        for (let j = 0; j < Math.min(options.maxPathLength, 3); j++) {
-          const randomIndex = Math.floor(Math.random() * availableSymbols.length);
-          path.push(availableSymbols[randomIndex]);
-        }
-        
-        opportunities.push({
-          id: `tri-${exchange}-${Date.now()}-${i}`,
-          type: 'triangular',
-          profit: (10000 * profitPercentage) / 100, // Random profit amount
-          profitPercentage,
-          path,
-          details: `${exchange}: ${path.join(' → ')}`,
-          timestamp: Date.now() - Math.floor(Math.random() * 3600000), // Random time in the last hour
-          exchanges: [exchange],
-          minimumRequired: 1000 // Minimum required for trade
-        });
+      if (priceData.price > highestPrice.price) {
+        highestPrice = { exchange: priceData.exchange, price: priceData.price };
       }
     }
-  }
-  
-  // Create a few mock simple (cross-exchange) opportunities
-  if (filteredExchanges.length >= 2) {
-    for (let i = 0; i < Math.min(3, Math.floor(filteredExchanges.length / 2)); i++) {
-      const exchange1 = filteredExchanges[i * 2];
-      const exchange2 = filteredExchanges[i * 2 + 1] || filteredExchanges[0];
+    
+    // Calculate profit percentage
+    if (lowestPrice.exchange && highestPrice.exchange && lowestPrice.exchange !== highestPrice.exchange) {
+      const priceDiff = highestPrice.price - lowestPrice.price;
+      const profitPercentage = (priceDiff / lowestPrice.price) * 100;
       
-      const profitPercentage = options.minProfitPercentage + (Math.random() * 1.5);
-      
-      // Only create opportunities that meet the minimum profit requirement
+      // Only add if profit meets minimum requirement
       if (profitPercentage >= options.minProfitPercentage) {
-        // Find a symbol that exists on both exchanges
-        const commonSymbols = symbols.filter(s => 
-          prices.some(p => p.exchange === exchange1 && p.symbol === s) &&
-          prices.some(p => p.exchange === exchange2 && p.symbol === s)
-        );
+        const profit = (10000 * profitPercentage) / 100; // Example with $10000 base
         
-        if (commonSymbols.length > 0) {
-          const symbol = commonSymbols[Math.floor(Math.random() * commonSymbols.length)];
-          
-          opportunities.push({
-            id: `simple-${exchange1}-${exchange2}-${Date.now()}-${i}`,
-            type: 'simple',
-            profit: (5000 * profitPercentage) / 100, // Random profit amount
-            profitPercentage,
-            path: [symbol],
-            details: `${exchange1} → ${exchange2}: ${symbol}`,
-            timestamp: Date.now() - Math.floor(Math.random() * 7200000), // Random time in the last 2 hours
-            exchanges: [exchange1, exchange2],
-            minimumRequired: 500 // Minimum required for trade
-          });
-        }
+        opportunities.push({
+          id: `simple-${lowestPrice.exchange}-${highestPrice.exchange}-${symbol}-${Date.now()}`,
+          type: 'simple',
+          profit: profit,
+          profitPercentage: profitPercentage,
+          path: [symbol],
+          details: `${lowestPrice.exchange} → ${highestPrice.exchange}: ${symbol} (${profitPercentage.toFixed(2)}%)`,
+          timestamp: Date.now(),
+          exchanges: [lowestPrice.exchange, highestPrice.exchange],
+          minimumRequired: 1000 // Minimum required for trade
+        });
       }
     }
   }

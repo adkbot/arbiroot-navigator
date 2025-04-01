@@ -49,7 +49,7 @@ const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
           <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm">Total de Arbitragens</span>
         </div>
-        <Badge variant={totalArbitrages > 0 ? "success" : "outline"} className="font-medium">
+        <Badge variant={totalArbitrages > 0 ? "default" : "outline"} className={totalArbitrages > 0 ? "bg-green-500" : ""}>
           {totalArbitrages}
         </Badge>
       </div>
