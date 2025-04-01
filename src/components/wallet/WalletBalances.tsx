@@ -3,7 +3,8 @@ import { CircleDollarSign, TrendingUp, RefreshCw } from "lucide-react";
 import { WalletInfo } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/contexts/WalletContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { toast } from "@/components/ui/use-toast";
 
 interface WalletBalancesProps {
   wallet: WalletInfo;
@@ -14,22 +15,62 @@ interface WalletBalancesProps {
 const WalletBalances = ({ wallet, totalProfit, lastProfit }: WalletBalancesProps) => {
   const { updateWalletBalance } = useWallet();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   
-  const handleRefreshBalance = async () => {
+  // Auto-refresh balances every 60 seconds
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      refreshBalance(false);
+    }, 60000);
+    
+    return () => clearInterval(intervalId);
+  }, []);
+  
+  const refreshBalance = async (showToast: boolean = true) => {
     setIsRefreshing(true);
     try {
       await updateWalletBalance();
+      setLastUpdateTime(Date.now());
+      
+      if (showToast) {
+        toast({
+          title: "Saldo atualizado",
+          description: `Saldo atualizado com sucesso às ${new Date().toLocaleTimeString()}`
+        });
+      }
     } catch (error) {
-      console.error("Failed to refresh balance:", error);
+      console.error("Falha ao atualizar saldo:", error);
+      if (showToast) {
+        toast({
+          variant: "destructive",
+          title: "Erro ao atualizar",
+          description: "Não foi possível atualizar o saldo. Tente novamente.",
+        });
+      }
     } finally {
       setIsRefreshing(false);
     }
   };
   
+  const handleRefreshBalance = () => refreshBalance(true);
+  
   const formatBalance = (balance: number, decimals: number = 2) => {
     if (balance === 0) return "0";
     if (balance < 0.01) return "<0.01";
     return balance.toFixed(decimals);
+  };
+  
+  // Calculate time since last update
+  const getUpdateTimeText = () => {
+    const seconds = Math.floor((Date.now() - lastUpdateTime) / 1000);
+    
+    if (seconds < 60) {
+      return "agora";
+    } else if (seconds < 3600) {
+      return `${Math.floor(seconds / 60)}min atrás`;
+    } else {
+      return `${Math.floor(seconds / 3600)}h atrás`;
+    }
   };
   
   return (
@@ -80,6 +121,12 @@ const WalletBalances = ({ wallet, totalProfit, lastProfit }: WalletBalancesProps
           <span className="text-green-500 font-medium">+${formatBalance(lastProfit)}</span>
         </div>
       )}
+      
+      <div className="flex justify-end mt-1">
+        <span className="text-xs text-muted-foreground">
+          Atualizado: {getUpdateTimeText()}
+        </span>
+      </div>
     </div>
   );
 };

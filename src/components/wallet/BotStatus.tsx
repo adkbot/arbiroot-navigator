@@ -1,13 +1,31 @@
 
 import { Badge } from "@/components/ui/badge";
-import { Loader2, TrendingUp, PauseCircle, Activity, BarChart3, CheckCircle2 } from "lucide-react";
+import { Loader2, TrendingUp, PauseCircle, Activity, BarChart3, CheckCircle2, Clock } from "lucide-react";
 
 interface BotStatusProps {
   botStatus: 'idle' | 'scanning' | 'trading' | 'waiting' | 'paused';
   totalArbitrages: number;
+  lastScanTime?: number | null;
 }
 
-const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
+const BotStatus = ({ botStatus, totalArbitrages, lastScanTime }: BotStatusProps) => {
+  // Calculate time since last scan
+  const getTimeSinceLastScan = () => {
+    if (!lastScanTime) return null;
+    
+    const secondsAgo = Math.floor((Date.now() - lastScanTime) / 1000);
+    
+    if (secondsAgo < 60) {
+      return `${secondsAgo}s atrás`;
+    } else if (secondsAgo < 3600) {
+      return `${Math.floor(secondsAgo / 60)}min atrás`;
+    } else {
+      return `${Math.floor(secondsAgo / 3600)}h atrás`;
+    }
+  };
+  
+  const lastScanTimeText = getTimeSinceLastScan();
+  
   return (
     <div className="pt-2 border-t space-y-2">
       <div className="flex justify-between items-center">
@@ -53,6 +71,18 @@ const BotStatus = ({ botStatus, totalArbitrages }: BotStatusProps) => {
           {totalArbitrages}
         </Badge>
       </div>
+      
+      {lastScanTimeText && botStatus !== 'idle' && (
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">Último Scan</span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {lastScanTimeText}
+          </span>
+        </div>
+      )}
     </div>
   );
 };

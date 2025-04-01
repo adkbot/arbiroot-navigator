@@ -1,8 +1,9 @@
 
-// Basic exchange utilities to fix import errors
+// Exchange utilities using CCXT for real-time data
 import { ethers } from 'ethers';
 import { PriceData, LiquidityInfo } from './types';
 import axios from 'axios';
+import * as ccxt from 'ccxt';
 
 // Defining the type of window with ethereum
 declare global {
@@ -27,7 +28,7 @@ const getEnvVar = (name: string, defaultValue: string = ''): string => {
 };
 
 export class ExchangeManager {
-  private exchanges: Record<string, any>;
+  private exchanges: Record<string, ccxt.Exchange>;
   private apiKeys: Record<string, { apiKey: string, secret: string, passphrase?: string }>;
   
   constructor() {
@@ -49,29 +50,47 @@ export class ExchangeManager {
       }
     };
     
-    // Initialize exchange connections (would use CCXT in a real implementation)
+    // Initialize exchange connections using CCXT
     this.initializeExchanges();
   }
   
   private initializeExchanges() {
     try {
-      // For a real implementation, we'd use CCXT
-      // Since we're in a browser, we'll use a REST API approach
-      this.exchanges = {
-        binance: { name: 'Binance', hasPrivateAPI: true },
-        coinbase: { name: 'Coinbase', hasPrivateAPI: true },
-        kraken: { name: 'Kraken', hasPrivateAPI: true }
-      };
+      // Initialize supported exchanges with CCXT
+      const supportedExchanges = ['binance', 'coinbase', 'kraken', 'kucoin', 'huobi', 'okx'];
       
-      console.log("Exchanges initialized successfully:", Object.keys(this.exchanges));
+      for (const exchangeId of supportedExchanges) {
+        if (ccxt[exchangeId as keyof typeof ccxt]) {
+          const exchangeClass = ccxt[exchangeId as keyof typeof ccxt];
+          
+          // Configure with API keys if available
+          const config: any = { 
+            enableRateLimit: true,
+            timeout: 30000
+          };
+          
+          if (this.apiKeys[exchangeId]) {
+            config.apiKey = this.apiKeys[exchangeId].apiKey;
+            config.secret = this.apiKeys[exchangeId].secret;
+            
+            if (this.apiKeys[exchangeId].passphrase) {
+              config.password = this.apiKeys[exchangeId].passphrase;
+            }
+          }
+          
+          this.exchanges[exchangeId] = new exchangeClass(config);
+          console.log(`Inicializada exchange ${exchangeId} com CCXT`);
+        }
+      }
+      
+      console.log("Exchanges inicializadas com sucesso:", Object.keys(this.exchanges));
     } catch (error) {
-      console.error("Failed to initialize exchanges:", error);
+      console.error("Falha ao inicializar exchanges:", error);
     }
   }
   
-  // Methods required by arbitrage.ts
+  // Verify actual arbitrage result
   async verifyArbitrageResult(trades: TradeResult[]) {
-    // In a real implementation, this would verify trade execution and calculate actual profit
     if (!trades || trades.length === 0) return false;
     
     try {
@@ -91,86 +110,60 @@ export class ExchangeManager {
       }
       
       const netProfit = profit - cost;
-      console.log(`Verified arbitrage result: ${netProfit > 0 ? 'Profitable' : 'Not profitable'}, Net profit: ${netProfit.toFixed(2)}`);
+      console.log(`Resultado da arbitragem verificado: ${netProfit > 0 ? 'Lucrativa' : 'Não lucrativa'}, Lucro: ${netProfit.toFixed(2)}`);
       
       return netProfit > 0 && allSuccessful;
     } catch (error) {
-      console.error("Error verifying arbitrage result:", error);
+      console.error("Erro ao verificar resultado da arbitragem:", error);
       return false;
     }
   }
   
   async fetchBalance(exchange: string, symbol: string) {
     try {
-      // In a real implementation, this would call the exchange API
       const exchangeApi = this.exchanges[exchange];
       
-      if (!exchangeApi || !exchangeApi.hasPrivateAPI) {
-        throw new Error(`No API access for ${exchange}`);
+      if (!exchangeApi) {
+        throw new Error(`Sem acesso à API para ${exchange}`);
       }
       
-      // Use exchange API endpoint to fetch balance
-      const response = await axios.get(`https://api.${exchange}.com/api/v3/balance`, {
-        headers: {
-          'X-API-KEY': this.apiKeys[exchange]?.apiKey
-        }
-      });
+      // Use CCXT to fetch balance
+      const balances = await exchangeApi.fetchBalance();
       
-      // Process response to get balance
-      const balances = response.data;
-      return balances[symbol] || 0;
+      if (balances && balances.total) {
+        return balances.total[symbol] || 0;
+      }
+      
+      return 0;
     } catch (error) {
-      console.error(`Error fetching balance from ${exchange} for ${symbol}:`, error);
-      // Return a fallback value for demonstration
-      return 100;
+      console.error(`Erro ao buscar saldo de ${symbol} em ${exchange}:`, error);
+      return 0;
     }
   }
   
   async checkLiquidity(exchange: string, symbol: string, amount: number): Promise<LiquidityInfo> {
     try {
-      // Para implementação real, devemos obter dados do livro de ordens da exchange
       console.log(`Verificando liquidez para ${symbol} na ${exchange}...`);
-      let orderBookData;
       
-      try {
-        // Em uma implementação real, isso usaria as APIs CCXT ou diretamente as APIs da exchange
-        if (exchange === 'binance') {
-          const response = await axios.get(`https://api.binance.com/api/v3/depth`, {
-            params: { symbol: symbol.replace('/', ''), limit: 10 }
-          });
-          orderBookData = {
-            bids: response.data.bids || [],
-            asks: response.data.asks || []
-          };
-        } else if (exchange === 'coinbase') {
-          const response = await axios.get(`https://api.exchange.coinbase.com/products/${symbol}/book?level=2`);
-          orderBookData = {
-            bids: response.data.bids || [],
-            asks: response.data.asks || []
-          };
-        } else {
-          // Fallback para outras exchanges - em produção seria implementado corretamente
-          throw new Error(`Direct API for ${exchange} not implemented`);
-        }
-      } catch (apiError) {
-        console.warn(`Could not get real orderbook for ${symbol} on ${exchange}:`, apiError);
-        // Se a API falhar, usamos valores razoáveis para continuar o fluxo em desenvolvimento
-        orderBookData = {
-          bids: [[100, 10]],
-          asks: [[101, 10]]
-        };
+      const exchangeApi = this.exchanges[exchange];
+      
+      if (!exchangeApi) {
+        throw new Error(`Sem acesso à API para ${exchange}`);
       }
       
+      // Fetch order book using CCXT
+      const orderBook = await exchangeApi.fetchOrderBook(symbol, 10);
+      
       // Calculate available liquidity
-      const bidVolume = orderBookData.bids.reduce((total, [price, volume]) => total + parseFloat(volume), 0);
-      const askVolume = orderBookData.asks.reduce((total, [price, volume]) => total + parseFloat(volume), 0);
+      const bidVolume = orderBook.bids.reduce((total, [price, volume]) => total + volume, 0);
+      const askVolume = orderBook.asks.reduce((total, [price, volume]) => total + volume, 0);
       
       // Calculate spread
-      const bestBid = parseFloat(orderBookData.bids[0]?.[0]) || 0;
-      const bestAsk = parseFloat(orderBookData.asks[0]?.[0]) || 0;
+      const bestBid = orderBook.bids[0]?.[0] || 0;
+      const bestAsk = orderBook.asks[0]?.[0] || 0;
       const spread = bestBid > 0 ? (bestAsk - bestBid) / bestBid : 0;
       
-      console.log(`Liquidez para ${symbol} em ${exchange}: Bid Vol=${bidVolume}, Ask Vol=${askVolume}, Spread=${spread}`);
+      console.log(`Liquidez para ${symbol} em ${exchange}: Bid Vol=${bidVolume.toFixed(2)}, Ask Vol=${askVolume.toFixed(2)}, Spread=${(spread * 100).toFixed(4)}%`);
       
       return {
         exchange,
@@ -180,73 +173,68 @@ export class ExchangeManager {
         spread
       };
     } catch (error) {
-      console.error(`Error checking liquidity for ${symbol} on ${exchange}:`, error);
-      
-      // Em produção, isso retornaria um erro, mas para não quebrar o fluxo, retornamos valores razoáveis
-      return {
-        exchange,
-        symbol,
-        bidVolume: 500,
-        askVolume: 500,
-        spread: 0.01
-      };
+      console.error(`Erro ao verificar liquidez para ${symbol} em ${exchange}:`, error);
+      throw error;
     }
   }
   
   async fetchTicker(exchange: string, symbol: string): Promise<PriceData> {
     try {
-      // Use public API to fetch ticker data
-      const response = await axios.get(`https://api.${exchange}.com/api/v3/ticker/price?symbol=${symbol}`);
+      const exchangeApi = this.exchanges[exchange];
+      
+      if (!exchangeApi) {
+        throw new Error(`Sem acesso à API para ${exchange}`);
+      }
+      
+      // Fetch ticker using CCXT
+      const ticker = await exchangeApi.fetchTicker(symbol);
       
       return {
         symbol,
         exchange,
-        price: parseFloat(response.data.price),
-        timestamp: Date.now(),
-        volume: response.data.volume || 10000
+        price: ticker.last || 0,
+        timestamp: ticker.timestamp || Date.now(),
+        volume: ticker.volume || ticker.quoteVolume || 0
       };
     } catch (error) {
-      console.error(`Error fetching ticker for ${symbol} on ${exchange}:`, error);
-      
-      // Return fallback price data for demonstration
-      return {
-        symbol,
-        exchange,
-        price: 100,
-        timestamp: Date.now(),
-        volume: 10000
-      };
+      console.error(`Erro ao buscar ticker para ${symbol} em ${exchange}:`, error);
+      throw error;
     }
   }
   
   async createOrder(exchange: string, symbol: string, type: string, side: string, amount: number, price?: number): Promise<TradeResult> {
-    console.log(`EXECUTANDO ORDEM REAL: ${side} ${amount} ${symbol} em ${exchange} a ${price || 'market price'}`);
+    console.log(`EXECUTANDO ORDEM REAL: ${side} ${amount} ${symbol} em ${exchange} a ${price || 'preço de mercado'}`);
     
     try {
-      if (!this.exchanges[exchange]?.hasPrivateAPI) {
-        throw new Error(`No API access for ${exchange}`);
+      const exchangeApi = this.exchanges[exchange];
+      
+      if (!exchangeApi) {
+        throw new Error(`Sem acesso à API para ${exchange}`);
       }
       
-      // Em uma implementação real com CCXT:
-      // const exchangeInstance = new ccxt[exchange]({
-      //   apiKey: this.apiKeys[exchange].apiKey,
-      //   secret: this.apiKeys[exchange].secret
-      // });
-      // const order = await exchangeInstance.createOrder(symbol, type, side, amount, price);
+      // Create order using CCXT
+      const order = await exchangeApi.createOrder(symbol, type, side, amount, price);
       
-      // Simulação de execução da ordem para desenvolvimento
-      const executedPrice = price || await this.getCurrentPrice(exchange, symbol, side);
-      const fee = this.calculateFee(exchange, amount * executedPrice);
+      // Get fee information
+      let fee = 0;
+      if (order.fee) {
+        if (order.fee.rate) {
+          fee = order.fee.rate * 100; // Convert to percentage
+        } else if (order.fee.cost && order.cost) {
+          fee = (order.fee.cost / order.cost) * 100;
+        }
+      } else {
+        fee = this.calculateFee(exchange, amount * (price || order.price || 0));
+      }
       
-      // Log a operação (em produção, isso executaria a ordem real)
-      console.log(`✅ Ordem executada: ${side} ${amount} ${symbol} em ${exchange} ao preço de ${executedPrice} (taxa: ${fee}%)`);
+      console.log(`✅ Ordem executada: ${side} ${amount} ${symbol} em ${exchange} ao preço de ${order.price} (taxa: ${fee}%)`);
       
       return {
         side,
         exchange,
         symbol,
-        amount,
-        price: executedPrice,
+        amount: order.amount,
+        price: order.price || 0,
         fee
       };
     } catch (error) {
@@ -255,118 +243,126 @@ export class ExchangeManager {
     }
   }
   
-  private async getCurrentPrice(exchange: string, symbol: string, side: string): Promise<number> {
-    try {
-      const orderBook = await this.fetchOrderBook(exchange, symbol);
-      
-      // For buy orders, use the ask price; for sell orders, use the bid price
-      if (side === 'buy') {
-        return orderBook.asks[0]?.[0] || 100;
-      } else {
-        return orderBook.bids[0]?.[0] || 100;
-      }
-    } catch (error) {
-      console.error(`Error getting current price for ${symbol} on ${exchange}:`, error);
-      return 100; // Fallback price
-    }
-  }
-  
   private calculateFee(exchange: string, amount: number): number {
     // Use typical fee rates for different exchanges
-    const feeRates = {
+    const feeRates: Record<string, number> = {
       binance: 0.1, // 0.1%
       coinbase: 0.5, // 0.5%
       kraken: 0.26, // 0.26%
+      kucoin: 0.1, // 0.1%
+      huobi: 0.2, // 0.2%
+      okx: 0.1, // 0.1%
       default: 0.2 // Default fee rate
     };
     
-    const feeRate = feeRates[exchange] || feeRates.default;
-    return feeRate;
+    return feeRates[exchange] || feeRates.default;
   }
   
   async getExchange(id: string) {
     if (!this.exchanges[id]) {
-      throw new Error(`Exchange ${id} not found`);
+      throw new Error(`Exchange ${id} não encontrada`);
     }
     
     return { 
       id, 
-      name: this.exchanges[id].name,
-      cancelAllOrders: async () => {},
-      createOrder: async (symbol, type, side, amount, price) => 
+      name: id.charAt(0).toUpperCase() + id.slice(1),
+      cancelAllOrders: async (symbol: string) => {
+        try {
+          return await this.exchanges[id].cancelAllOrders(symbol);
+        } catch (error) {
+          console.error(`Erro ao cancelar ordens em ${id}:`, error);
+          throw error;
+        }
+      },
+      createOrder: async (symbol: string, type: string, side: string, amount: number, price?: number) => 
         this.createOrder(id, symbol, type, side, amount, price)
     };
   }
   
   async fetchOrderBook(exchange: string, symbol: string) {
     try {
-      // Em uma implementação real, isso usaria CCXT ou diretamente as APIs da exchange
       console.log(`Buscando livro de ordens para ${symbol} em ${exchange}...`);
       
-      let response;
-      try {
-        // Tentar buscar dados reais
-        if (exchange === 'binance') {
-          response = await axios.get(`https://api.binance.com/api/v3/depth`, {
-            params: { symbol: symbol.replace('/', ''), limit: 5 }
-          });
-          return {
-            bids: response.data.bids || [[100, 10]],
-            asks: response.data.asks || [[101, 10]]
-          };
-        } else if (exchange === 'coinbase') {
-          response = await axios.get(`https://api.exchange.coinbase.com/products/${symbol}/book?level=1`);
-          return {
-            bids: response.data.bids || [[100, 10]],
-            asks: response.data.asks || [[101, 10]]
-          };
-        }
-      } catch (apiError) {
-        console.warn(`Não foi possível obter livro de ordens real para ${symbol} em ${exchange}:`, apiError);
+      const exchangeApi = this.exchanges[exchange];
+      
+      if (!exchangeApi) {
+        throw new Error(`Sem acesso à API para ${exchange}`);
       }
       
-      // Fallback para valores razoáveis em desenvolvimento
-      return {
-        bids: [[100, 10]],
-        asks: [[101, 10]]
-      };
+      // Fetch order book using CCXT
+      return await exchangeApi.fetchOrderBook(symbol, 10);
     } catch (error) {
       console.error(`Erro ao buscar livro de ordens para ${symbol} em ${exchange}:`, error);
-      
-      // Fallback para valores padrão em caso de erro
-      return {
-        bids: [[100, 10]],
-        asks: [[101, 10]]
-      };
+      throw error;
     }
   }
   
   async getExchanges() {
     return Object.keys(this.exchanges).map(id => ({
       id,
-      name: this.exchanges[id].name,
-      hasPrivateAPI: this.exchanges[id].hasPrivateAPI
+      name: id.charAt(0).toUpperCase() + id.slice(1),
+      hasPrivateAPI: Boolean(this.apiKeys[id]?.apiKey)
     }));
   }
   
-  async getPendingTrades() {
-    // In a real implementation, this would fetch pending trades from all connected exchanges
-    return [];
+  async getPendingTrades(exchange?: string) {
+    try {
+      if (exchange) {
+        const exchangeApi = this.exchanges[exchange];
+        if (!exchangeApi) {
+          throw new Error(`Exchange ${exchange} não encontrada`);
+        }
+        return await exchangeApi.fetchOpenOrders();
+      }
+      
+      // Fetch from all exchanges
+      const allOrders: any[] = [];
+      for (const [id, api] of Object.entries(this.exchanges)) {
+        try {
+          if (api.has['fetchOpenOrders']) {
+            const orders = await api.fetchOpenOrders();
+            allOrders.push(...orders.map(order => ({ ...order, exchange: id })));
+          }
+        } catch (error) {
+          console.error(`Erro ao buscar ordens abertas em ${id}:`, error);
+        }
+      }
+      
+      return allOrders;
+    } catch (error) {
+      console.error("Erro ao buscar trades pendentes:", error);
+      return [];
+    }
   }
   
-  async getCompletedTrades() {
-    // In a real implementation, this would fetch completed trades from all connected exchanges
-    return [];
-  }
-  
-  async getFailedTrades() {
-    // In a real implementation, this would fetch failed trades from all connected exchanges
-    return [];
-  }
-  
-  async scanProfitOpportunities() {
-    // This would be implemented to directly scan for opportunities across exchanges
-    return [];
+  async getCompletedTrades(exchange?: string, symbol?: string, limit: number = 10) {
+    try {
+      if (exchange) {
+        const exchangeApi = this.exchanges[exchange];
+        if (!exchangeApi) {
+          throw new Error(`Exchange ${exchange} não encontrada`);
+        }
+        return await exchangeApi.fetchMyTrades(symbol, undefined, limit);
+      }
+      
+      // Fetch from all exchanges
+      const allTrades: any[] = [];
+      for (const [id, api] of Object.entries(this.exchanges)) {
+        try {
+          if (api.has['fetchMyTrades']) {
+            const trades = await api.fetchMyTrades(symbol, undefined, limit);
+            allTrades.push(...trades.map(trade => ({ ...trade, exchange: id })));
+          }
+        } catch (error) {
+          console.error(`Erro ao buscar trades completos em ${id}:`, error);
+        }
+      }
+      
+      return allTrades.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+    } catch (error) {
+      console.error("Erro ao buscar trades completos:", error);
+      return [];
+    }
   }
 }
 
@@ -375,21 +371,44 @@ export class WalletManager {
   private signer: ethers.Signer | null = null;
   
   constructor() {
-    this.provider = new ethers.providers.JsonRpcProvider("https://polygon-rpc.com");
+    // Use a provider that matches the current chain
+    this.provider = new ethers.providers.JsonRpcProvider(import.meta.env.VITE_POLYGON_RPC_URL || "https://polygon-rpc.com");
   }
   
   async connectWallet(address: string, chain: string) {
     try {
-      // In a real implementation, this would connect to the wallet and get a signer
+      // Connect to the wallet using ethers.js
       if (window.ethereum) {
         const provider = new ethers.providers.Web3Provider(window.ethereum);
         await provider.send("eth_requestAccounts", []);
         this.signer = provider.getSigner();
+        
+        // Ensure we're on the correct network
+        const network = await provider.getNetwork();
+        const chainIds: Record<string, number> = {
+          ethereum: 1,
+          polygon: 137,
+          binance: 56,
+          arbitrum: 42161
+        };
+        
+        // Switch network if needed
+        if (chainIds[chain] && network.chainId !== chainIds[chain]) {
+          try {
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: `0x${chainIds[chain].toString(16)}` }],
+            });
+          } catch (switchError: any) {
+            console.error("Error switching chains:", switchError);
+          }
+        }
+        
         return true;
       }
       return false;
     } catch (error) {
-      console.error("Failed to connect wallet:", error);
+      console.error("Falha ao conectar carteira:", error);
       return false;
     }
   }
@@ -404,7 +423,7 @@ export class WalletManager {
     try {
       return await this.signer.getAddress();
     } catch (error) {
-      console.error("Failed to get address:", error);
+      console.error("Falha ao obter endereço:", error);
       return null;
     }
   }
@@ -412,42 +431,85 @@ export class WalletManager {
   async getBalance(address?: string) {
     try {
       const addr = address || await this.getAddress();
-      if (!addr) return { matic: 0, usdt: 0 };
+      if (!addr) return { native: 0, usdt: 0 };
       
+      // Get native token balance
       const balance = await this.provider.getBalance(addr);
-      const maticBalance = parseFloat(ethers.utils.formatEther(balance));
+      const nativeBalance = parseFloat(ethers.utils.formatEther(balance));
       
-      // Get USDT balance (would use actual contract in real implementation)
+      // Get USDT balance using token contract
       const usdtBalance = await this.getTokenBalance(addr, 'polygon', 'USDT');
       
-      return { matic: maticBalance, usdt: usdtBalance };
+      return { native: nativeBalance, usdt: usdtBalance };
     } catch (error) {
-      console.error("Failed to get balance:", error);
-      return { matic: 0, usdt: 0 };
+      console.error("Falha ao obter saldo:", error);
+      return { native: 0, usdt: 0 };
     }
   }
   
   private async getTokenBalance(address: string, network: string, symbol: string) {
-    // This would use actual token contract to get balance in a real implementation
     try {
-      return 0; // Would return real balance
+      // Token contract addresses on different networks
+      const tokenAddresses: Record<string, Record<string, string>> = {
+        polygon: {
+          USDT: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f',
+          USDC: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174'
+        },
+        ethereum: {
+          USDT: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+          USDC: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
+        },
+        binance: {
+          USDT: '0x55d398326f99059ff775485246999027b3197955',
+          USDC: '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d'
+        }
+      };
+      
+      const tokenAddress = tokenAddresses[network]?.[symbol];
+      if (!tokenAddress) {
+        console.warn(`Endereço do token ${symbol} não encontrado para rede ${network}`);
+        return 0;
+      }
+      
+      // Standard ERC20 ABI for balanceOf and decimals
+      const erc20Abi = [
+        "function balanceOf(address) view returns (uint256)",
+        "function decimals() view returns (uint8)"
+      ];
+      
+      const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, this.provider);
+      const balance = await tokenContract.balanceOf(address);
+      const decimals = await tokenContract.decimals();
+      
+      return parseFloat(ethers.utils.formatUnits(balance, decimals));
     } catch (error) {
-      console.error(`Failed to get ${symbol} balance:`, error);
+      console.error(`Falha ao obter saldo de ${symbol}:`, error);
       return 0;
     }
   }
   
   async getAllBalances() {
     const address = await this.getAddress();
-    if (!address) return { matic: 0, usdt: 0 };
+    if (!address) return { native: 0, usdt: 0 };
     return this.getBalance(address);
   }
   
   async getTokenBalances(address: string, network: string) {
-    return { 
-      matic: 0.875, 
-      usdt: 18432.75 
-    };
+    try {
+      const nativeBalance = await this.provider.getBalance(address);
+      const nativeAmount = parseFloat(ethers.utils.formatEther(nativeBalance));
+      
+      // Get USDT balance
+      const usdtAmount = await this.getTokenBalance(address, network, 'USDT');
+      
+      return { 
+        native: nativeAmount, 
+        usdt: usdtAmount 
+      };
+    } catch (error) {
+      console.error(`Erro ao obter saldos de tokens para ${address} na rede ${network}:`, error);
+      return { native: 0, usdt: 0 };
+    }
   }
   
   async connect() {
@@ -464,16 +526,45 @@ export class ArbitrageExecutor {
   
   async executeArbitrage(opportunity: any) {
     try {
-      // This would execute the actual arbitrage in a real implementation
-      console.log("Executing arbitrage:", opportunity);
+      console.log("Executando arbitragem:", opportunity);
       
-      // Run the trading sequence
+      // Execute trades on the exchanges
       const trades = [];
+      const exchanges = opportunity.exchanges;
+      const symbol = opportunity.path[0];
       
-      // Return the result
-      return true;
+      // For simple arbitrage between two exchanges
+      if (exchanges.length === 2) {
+        // Buy on the first exchange (lower price)
+        const buyExchange = exchanges[0];
+        const buyAmount = opportunity.minimumRequired / opportunity.profitPercentage;
+        
+        const buy = await this.exchangeManager.createOrder(
+          buyExchange, 
+          symbol, 
+          'limit', 
+          'buy', 
+          buyAmount
+        );
+        
+        // Sell on the second exchange (higher price)
+        const sellExchange = exchanges[1];
+        const sell = await this.exchangeManager.createOrder(
+          sellExchange,
+          symbol,
+          'limit',
+          'sell',
+          buyAmount
+        );
+        
+        trades.push(buy, sell);
+      }
+      
+      // Verify the result
+      const success = await this.verifyArbitrageResult(trades);
+      return success;
     } catch (error) {
-      console.error("Error executing arbitrage:", error);
+      console.error("Erro ao executar arbitragem:", error);
       return false;
     }
   }
