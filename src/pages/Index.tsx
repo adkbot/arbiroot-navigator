@@ -25,7 +25,6 @@ const Index = () => {
     exchanges.slice(0, 5).map(exchange => exchange.id)
   );
   const [minProfitPercentage, setMinProfitPercentage] = useState(0.5);
-  const [maxPathLength, setMaxPathLength] = useState(3);
   const [selectedPairs, setSelectedPairs] = useState<string[]>(
     tradingPairs.slice(0, 6)
   );
@@ -50,7 +49,7 @@ const Index = () => {
   
   useEffect(() => {
     calculateArbitrageOpportunities();
-  }, [prices, minProfitPercentage, maxPathLength, selectedExchanges]);
+  }, [prices, minProfitPercentage, selectedExchanges]);
 
   const fetchPriceData = async () => {
     try {
@@ -244,20 +243,6 @@ const Index = () => {
                       />
                     </div>
                     
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm">Max Path Length</span>
-                        <span className="text-sm font-medium">{maxPathLength}</span>
-                      </div>
-                      <Slider
-                        value={[maxPathLength]}
-                        min={3}
-                        max={5}
-                        step={1}
-                        onValueChange={(value) => setMaxPathLength(value[0])}
-                      />
-                    </div>
-                    
                     <div className="pt-2">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-sm">Auto-Refresh</span>
@@ -298,11 +283,8 @@ const Index = () => {
                     <div className="flex justify-between items-center">
                       <CardTitle className="text-lg">All Opportunities</CardTitle>
                       <div className="flex gap-2">
-                        <Badge variant="secondary">
-                          {opportunities.filter(o => o.type === 'triangular').length} Triangular
-                        </Badge>
                         <Badge variant="outline">
-                          {opportunities.filter(o => o.type === 'simple').length} Simple
+                          {opportunities.length} Simple
                         </Badge>
                       </div>
                     </div>

@@ -13,7 +13,7 @@ interface ArbitrageOpportunityProps {
 const ArbitrageOpportunity = ({ opportunity }: ArbitrageOpportunityProps) => {
   const [expanded, setExpanded] = useState(false);
   
-  const { type, profit, profitPercentage, path, details, timestamp, exchanges } = opportunity;
+  const { profit, profitPercentage, path, details, timestamp, exchanges } = opportunity;
   
   const formattedDate = new Date(timestamp).toLocaleTimeString();
   
@@ -29,8 +29,8 @@ const ArbitrageOpportunity = ({ opportunity }: ArbitrageOpportunityProps) => {
           <CardTitle className="text-base font-medium">
             {profitPercentage.toFixed(2)}% Profit
           </CardTitle>
-          <Badge variant={type === 'triangular' ? 'default' : 'outline'}>
-            {type === 'triangular' ? 'Triangular' : 'Simple'}
+          <Badge variant="outline">
+            Simple
           </Badge>
         </div>
         <div className="flex items-center gap-2">
@@ -58,12 +58,6 @@ const ArbitrageOpportunity = ({ opportunity }: ArbitrageOpportunityProps) => {
           {expanded ? (
             <div className="mt-3 space-y-2 animate-fade-in">
               <p className="text-sm">{details}</p>
-              {type === 'triangular' && (
-                <div className="bg-muted/50 p-2 rounded-md text-xs">
-                  <span className="font-medium">Path: </span>
-                  {path.join(' → ')}
-                </div>
-              )}
               <div className="flex justify-between mt-3">
                 <Button 
                   variant="outline" 

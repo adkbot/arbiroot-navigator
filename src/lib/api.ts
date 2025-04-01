@@ -1,9 +1,10 @@
+
 // Import interfaces and type definitions
 import { ethers } from 'ethers';
 import { PriceData, ExchangeInfo } from './types';
 import axios from 'axios';
 
-// Exchange data with APIs provided by user
+// Apenas as exchanges que têm APIs configuradas
 export const exchanges: ExchangeInfo[] = [
   { id: 'binance', name: 'Binance', logo: 'https://cryptologos.cc/logos/binance-coin-bnb-logo.png', active: true },
   { id: 'coinbase', name: 'Coinbase', logo: 'https://cryptologos.cc/logos/coinbase-coin-logo.png', active: true },
@@ -17,7 +18,7 @@ export const exchanges: ExchangeInfo[] = [
   { id: 'bittrex', name: 'Bittrex', logo: 'https://cryptologos.cc/logos/bittrex-logo.png', active: true },
 ];
 
-// APIs endpoints provided by user
+// APIs endpoints fornecidas pelo usuário
 const exchangeApis = {
   binance: {
     url: 'https://api.binance.com/api/v3/ticker/price?symbol={}',
